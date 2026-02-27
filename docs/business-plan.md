@@ -70,7 +70,7 @@ oss contribute "I teach this topic by..."             # Natural language
 - Run quality analysis across a syllabus
 - Contribute via terminal (for developers who prefer CLI)
 
-### 3. Web Portal (contribute.opensyllabus.org)
+### 3. Web Portal (contribute.p-n-ai.org)
 
 A simple web form for teachers who don't use Git or the command line:
 
@@ -135,7 +135,7 @@ The bot that enables community contributions directly in GitHub:
 The web contribution form for non-technical educators:
 
 **Deliverables:**
-- Simple form at contribute.opensyllabus.org
+- Simple form at contribute.p-n-ai.org
 - Natural language → structured YAML preview
 - PR creation on behalf of contributors
 - Contribution tracking (optional GitHub sign-in)
@@ -369,7 +369,7 @@ Costs scale linearly with contribution volume — more contributions mean more A
 | Week 5 | `oss translate` and `oss quality` commands |
 | Week 5 | `oss contribute` (natural language → structured PR) |
 | Week 6 | GitHub Bot (`@oss-bot`) responding to commands in OSS repo |
-| Week 6 | Web contribution portal (contribute.opensyllabus.org) |
+| Week 6 | Web contribution portal (contribute.p-n-ai.org) |
 | Month 2 | P&AI → OSS Bot feedback pipeline (automated improvement suggestions) |
 | Month 3 | Prompt optimization based on acceptance rates |
 | Month 4 | Self-hosting documentation and simplified setup |

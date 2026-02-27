@@ -8,7 +8,7 @@
 
 ## Scope for oss-bot
 
-oss-bot owns **contribution tooling**: the CLI validator, AI content generation pipeline, GitHub bot (@oss-bot), and the web contribution portal (contribute.opensyllabus.org). It's the bridge between human contributors and the oss data repository.
+oss-bot owns **contribution tooling**: the CLI validator, AI content generation pipeline, GitHub bot (@oss-bot), and the web contribution portal (contribute.p-n-ai.org). It's the bridge between human contributors and the oss data repository.
 
 **Key insight:** oss-bot is NOT needed for Weeks 1-3. During the validation phase, content is created manually by the Education Lead + AI assistance. oss-bot ships when the system needs to scale contribution beyond the core team — that's Week 4 onward.
 
@@ -172,10 +172,10 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner |
 |---------|------|-------|
-| `B-W6D30-1` | 🧑 Announce web portal in launch materials: "contribute.opensyllabus.org — teachers can contribute without Git" | 🧑 Human |
+| `B-W6D30-1` | 🧑 Announce web portal in launch materials: "contribute.p-n-ai.org — teachers can contribute without Git" | 🧑 Human |
 | `B-W6D30-2` | 🧑 Write oss-bot section of 6-week report: AI generation quality, bot PRs created, web portal usage | 🧑 Human |
 
-**Week 6 Output:** Web portal live at contribute.opensyllabus.org. GitHub bot responding to @oss-bot. CLI distributed as pre-built binary.
+**Week 6 Output:** Web portal live at contribute.p-n-ai.org. GitHub bot responding to @oss-bot. CLI distributed as pre-built binary.
 
 ---
 

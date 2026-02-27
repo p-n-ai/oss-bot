@@ -96,7 +96,7 @@ type AIProvider interface {
 
 | Component | Technology | Version | Rationale |
 |-----------|-----------|---------|-----------|
-| **Framework** | Next.js (App Router) | 14 | Consistent with P&AI Bot admin panel. SSR for SEO. |
+| **Framework** | Next.js (App Router) | 15 | Consistent with P&AI Bot admin panel. SSR for SEO. |
 | **Language** | TypeScript | 5.x | Type safety, form handling. |
 | **UI Components** | shadcn/ui | latest | Consistent design system across P&AI ecosystem. |
 | **Styling** | Tailwind CSS | 3.x | Utility-first, matching other P&AI frontends. |
@@ -212,7 +212,7 @@ cmd/oss/main.go
         └── internal/github/     (optional: PR creation if --pr flag set)
 ```
 
-### 3.3 Web Portal (`contribute.opensyllabus.org`)
+### 3.3 Web Portal (`contribute.p-n-ai.org`)
 
 **Runtime:** Next.js application served via Docker container. Calls the Go backend API for AI generation and GitHub PR creation.
 

@@ -331,42 +331,66 @@ oss-bot/
 ├── cmd/
 │   ├── oss/                     # CLI entrypoint
 │   │   └── main.go
-│   └── bot/                     # GitHub Bot entrypoint
+│   └── bot/                     # GitHub Bot + Web Portal server
 │       └── main.go
 ├── internal/
-│   ├── ai/                      # AI provider interface
+│   ├── ai/                      # AI provider interface (shared with P&AI Bot)
 │   │   ├── provider.go
 │   │   ├── openai.go
 │   │   ├── anthropic.go
 │   │   └── ollama.go
-│   ├── generator/               # Content generation
+│   ├── generator/               # Content generation pipeline
+│   │   ├── context.go           # Context builder
 │   │   ├── teaching_notes.go
 │   │   ├── assessments.go
 │   │   ├── examples.go
 │   │   ├── translator.go
+│   │   ├── scaffolder.go        # New syllabus scaffolding
 │   │   └── importer.go          # PDF import
 │   ├── validator/               # Schema validation
-│   │   └── validator.go
-│   ├── github/                  # GitHub API + webhook handling
-│   │   ├── bot.go               # GitHub App webhook handler
-│   │   └── pr.go                # PR creation helpers
-│   └── parser/                  # Natural language → structured data
-│       ├── contribution.go
-│       └── pdf.go               # PDF text extraction
-├── web/                         # Contribution web portal
+│   │   ├── validator.go         # JSON Schema engine
+│   │   ├── bloom.go             # Bloom's taxonomy checks
+│   │   ├── prerequisites.go     # Prerequisite graph integrity
+│   │   ├── duplicates.go        # Duplicate content detection
+│   │   └── quality.go           # Quality level assessment
+│   ├── parser/                  # Input parsing
+│   │   ├── command.go           # Parse @oss-bot commands
+│   │   ├── contribution.go      # Natural language → structured data
+│   │   └── pdf.go               # PDF text extraction
+│   ├── github/                  # GitHub API integration
+│   │   ├── app.go               # GitHub App authentication
+│   │   ├── webhook.go           # Webhook handler + HMAC verification
+│   │   ├── pr.go                # PR creation, labels, reviewers
+│   │   └── contents.go          # Read/write via GitHub Contents API
+│   └── api/                     # Web portal backend
+│       ├── router.go
+│       ├── preview.go           # POST /api/preview
+│       ├── submit.go            # POST /api/submit
+│       └── curricula.go         # GET /api/curricula
+├── web/                         # Contribution web portal (Next.js)
 │   ├── src/
-│   │   └── app/                 # Next.js pages
+│   │   ├── app/                 # Next.js pages (App Router)
+│   │   ├── components/          # UI components
+│   │   └── lib/                 # API client
 │   ├── package.json
 │   └── next.config.js
 ├── prompts/                     # AI prompt templates
 │   ├── teaching_notes.md
 │   ├── assessments.md
+│   ├── examples.md
 │   ├── translation.md
-│   └── contribution_parser.md
+│   ├── contribution_parser.md
+│   └── pdf_import.md
+├── scripts/                     # Dev scripts
+│   ├── setup.sh
+│   └── test-webhook.sh
 ├── deploy/
 │   └── docker/
-│       └── Dockerfile
+│       ├── Dockerfile
+│       └── Dockerfile.dev
 ├── docker-compose.yml
+├── Makefile
+├── .env.example
 └── README.md
 ```
 
