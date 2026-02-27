@@ -51,6 +51,21 @@ When requirements conflict, use this precedence:
   - `OSS_`-prefixed environment configuration
 - Keep claims in docs accurate to repository reality. Mark roadmap content as planned.
 
+### Test-Driven Development (TDD) — Mandatory
+
+Every feature must follow this strict cycle:
+
+1. **Write tests first** — define expected behavior with unit tests before writing implementation code.
+2. **Implement** — write the minimum code to make the tests pass.
+3. **Run package tests** — verify the new feature works (`go test ./internal/<package>/...`).
+4. **Run full test suite** — run `go test ./...` to confirm no existing tests are broken.
+5. **Never skip step 4** — a feature is not complete until the full suite passes.
+
+Testing conventions:
+- Use stdlib `testing` with table-driven tests and `t.Run()` subtests.
+- Mock AI providers for deterministic output — never call real AI APIs in tests.
+- Test files live alongside source: `validator.go` → `validator_test.go`.
+
 ## 5. Documentation Update Expectations
 
 When editing docs:

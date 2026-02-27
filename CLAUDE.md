@@ -188,6 +188,36 @@ All config uses `OSS_` prefix. Key variables:
 | [p-n-ai/oss](https://github.com/p-n-ai/oss) | Target data repo. OSS Bot creates PRs here. Reads content for context. |
 | [p-n-ai/pai-bot](https://github.com/p-n-ai/pai-bot) | AI learning companion. Shares AI provider interface. Submits feedback via `/api/feedback`. |
 
+## Development Workflow
+
+### Test-Driven Development (TDD)
+This project follows a strict test-first approach. Every feature goes through this cycle:
+
+1. **Write tests first** — before implementing any feature, write unit tests that define expected behavior
+2. **Implement** — write the minimum code to make the tests pass
+3. **Run package tests** — verify the new feature works (`go test ./internal/<package>/...`)
+4. **Run full test suite** — run `go test ./...` to ensure nothing is broken across the entire codebase
+5. **Never skip step 4** — every completed feature must pass the full suite before moving on
+
+**Testing conventions:**
+- Use stdlib `testing` with table-driven tests and `t.Run()` subtests
+- **Mock AI providers** for deterministic test output — never call real AI APIs in tests
+- **Test files** live alongside source: `validator.go` → `validator_test.go`
+
+```bash
+# Run all tests (REQUIRED after every feature)
+go test ./...
+
+# Run tests for a specific package
+go test ./internal/validator/...
+
+# Run with verbose output
+go test -v ./...
+
+# Run a specific test
+go test -run TestValidateSchema ./internal/validator/...
+```
+
 ## Development Notes
 
 - **Build order priority:** Validator -> Generator -> GitHub Bot -> Web Portal
