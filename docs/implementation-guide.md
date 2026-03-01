@@ -3301,7 +3301,7 @@ go build ./cmd/oss
 
 ---
 
-## WEEK 5 — GITHUB BOT + PDF IMPORT
+## WEEK 5 — GITHUB BOT + DOCUMENT IMPORT
 
 ### Day 21 — GitHub App Setup
 
@@ -4231,39 +4231,55 @@ kill %1
 
 ---
 
-### Day 23 — PDF Import + More Commands
+### Day 23 — Document Import (Hybrid) + More Commands
 
 **Entry criteria:** Day 22 complete. Bot server starts and handles webhooks.
+
+#### Architecture Decision: Hybrid Document Parsing
+
+The project uses a **hybrid approach** for document import:
+- **CLI (`oss import --pdf`):** Uses `ledongthuc/pdf` (Go-native). Lightweight, no external dependencies. PDF-only.
+- **Server (Bot + Web Portal):** Uses Apache Tika as a Docker sidecar via `google/go-tika`. Supports PDF, DOCX, PPTX, XLSX, HTML, and 1000+ other formats.
+
+Both implementations share the `DocumentParser` interface, allowing the import pipeline to work identically regardless of the parser backend.
+
+**Why hybrid:**
+- CLI stays lightweight and self-contained (single Go binary, no Docker)
+- Server gets broad format support where it matters (teachers submit DOCX, PPTX, web links — not just PDF)
+- Apache Tika is battle-tested (15+ years, Apache Foundation), has a native Go client (`google/go-tika`), and runs as a simple Docker sidecar
 
 #### Tasks
 
 | # | Task ID | Task | Owner | Files Created |
 |---|---------|------|-------|---------------|
-| 23.1 | `B-W5D23-1` | PDF import prompt template | 🤖 | `prompts/pdf_import.md` |
-| 23.2 | `B-W5D23-2` | PDF text extraction | 🤖 | `internal/parser/pdf.go` |
-| 23.3 | `B-W5D23-3` | Scaffolder (PDF → syllabus structure) | 🤖 | `internal/generator/scaffolder.go` |
-| 23.4 | `B-W5D23-4` | `@oss-bot quality` command implementation | 🤖 | Update bot handlers |
+| 23.1 | `B-W5D23-1` | Document import prompt template | 🤖 | `prompts/document_import.md` |
+| 23.2 | `B-W5D23-2` | DocumentParser interface | 🤖 | `internal/parser/document.go` |
+| 23.3 | `B-W5D23-3` | Go-native PDF extraction (CLI) | 🤖 | `internal/parser/pdf.go` |
+| 23.4 | `B-W5D23-4` | Apache Tika client (Server) | 🤖 | `internal/parser/tika.go` |
+| 23.5 | `B-W5D23-5` | Scaffolder (document → syllabus structure) | 🤖 | `internal/generator/scaffolder.go` |
+| 23.6 | `B-W5D23-6` | `@oss-bot quality` command implementation | 🤖 | Update bot handlers |
 
-#### 23.1 — PDF Import Prompt Template
+#### 23.1 — Document Import Prompt Template
 
-**File:** `prompts/pdf_import.md`
+**File:** `prompts/document_import.md`
 
 ```markdown
-# PDF Import Prompt
+# Document Import Prompt
 
 You are an expert at extracting curriculum structure from educational documents.
 
 ## Context
 
-**Source PDF content:**
-{{pdf_text}}
+**Source document content (pre-extracted text):**
+{{document_text}}
 
+**Source format:** {{source_format}}
 **Target board:** {{board}}
 **Target level:** {{level}}
 
 ## Instructions
 
-Extract the curriculum structure from the PDF text and output as YAML:
+Extract the curriculum structure from the document text and output as YAML:
 
 1. Identify subjects/strands
 2. Identify individual topics within each subject
@@ -4290,7 +4306,29 @@ subjects:
         prerequisites: []
 ```
 
-#### 23.2 — PDF Text Extraction (TDD)
+#### 23.2 — DocumentParser Interface (TDD)
+
+**File:** `internal/parser/document.go`
+
+```go
+// Package parser handles input parsing (document extraction, natural language, commands).
+package parser
+
+import "context"
+
+// DocumentParser extracts text from documents for the AI import pipeline.
+// CLI uses PDFParser (Go-native, standalone). Server uses TikaParser (multi-format).
+type DocumentParser interface {
+	// Extract converts a document to plain text for AI processing.
+	// input is the raw file bytes. mimeType hints at the format (e.g., "application/pdf").
+	Extract(ctx context.Context, input []byte, mimeType string) (string, error)
+
+	// SupportedTypes returns the MIME types this parser handles.
+	SupportedTypes() []string
+}
+```
+
+#### 23.3 — Go-Native PDF Extraction for CLI (TDD)
 
 **File:** `internal/parser/pdf_test.go`
 
@@ -4298,6 +4336,7 @@ subjects:
 package parser_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -4305,8 +4344,33 @@ import (
 	"github.com/p-n-ai/oss-bot/internal/parser"
 )
 
+func TestPDFParser(t *testing.T) {
+	p := parser.NewPDFParser()
+
+	t.Run("supported-types", func(t *testing.T) {
+		types := p.SupportedTypes()
+		if len(types) != 1 || types[0] != "application/pdf" {
+			t.Errorf("SupportedTypes() = %v, want [application/pdf]", types)
+		}
+	})
+
+	t.Run("non-pdf-content", func(t *testing.T) {
+		_, err := p.Extract(context.Background(), []byte("not a pdf"), "text/plain")
+		if err == nil {
+			t.Error("Extract() should error for non-PDF content")
+		}
+	})
+
+	t.Run("empty-input", func(t *testing.T) {
+		_, err := p.Extract(context.Background(), nil, "application/pdf")
+		if err == nil {
+			t.Error("Extract() should error for empty input")
+		}
+	})
+}
+
+// Legacy function tests for backwards compatibility
 func TestExtractPDFText(t *testing.T) {
-	// Create a minimal test — real PDF testing requires a sample file
 	t.Run("non-existent-file", func(t *testing.T) {
 		_, err := parser.ExtractPDFText("/nonexistent/file.pdf")
 		if err == nil {
@@ -4328,17 +4392,43 @@ func TestExtractPDFText(t *testing.T) {
 **File:** `internal/parser/pdf.go`
 
 ```go
-// Package parser handles input parsing (PDF extraction, natural language, commands).
 package parser
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// ExtractPDFText extracts text content from a PDF file.
+// PDFParser implements DocumentParser using Go-native PDF extraction.
+// Used by the CLI for standalone operation without external dependencies.
+type PDFParser struct{}
+
+// NewPDFParser creates a new Go-native PDF parser.
+func NewPDFParser() *PDFParser {
+	return &PDFParser{}
+}
+
+func (p *PDFParser) Extract(ctx context.Context, input []byte, mimeType string) (string, error) {
+	if len(input) == 0 {
+		return "", fmt.Errorf("empty input")
+	}
+	if mimeType != "" && mimeType != "application/pdf" {
+		return "", fmt.Errorf("unsupported MIME type for PDFParser: %s (only application/pdf supported)", mimeType)
+	}
+
+	// PDF extraction using ledongthuc/pdf
+	// TODO: Implement with ledongthuc/pdf library
+	return "", fmt.Errorf("PDF extraction not yet implemented — install ledongthuc/pdf")
+}
+
+func (p *PDFParser) SupportedTypes() []string {
+	return []string{"application/pdf"}
+}
+
+// ExtractPDFText is a convenience function for CLI file-based extraction.
 func ExtractPDFText(path string) (string, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return "", fmt.Errorf("file not found: %s", path)
@@ -4349,17 +4439,157 @@ func ExtractPDFText(path string) (string, error) {
 		return "", fmt.Errorf("not a PDF file: %s", path)
 	}
 
-	// PDF extraction using ledongthuc/pdf
-	// Implementation depends on chosen library
-	return "", fmt.Errorf("PDF extraction not yet implemented — install ledongthuc/pdf")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading file: %w", err)
+	}
+
+	p := NewPDFParser()
+	return p.Extract(context.Background(), data, "application/pdf")
 }
 ```
 
-#### 23.3 — Scaffolder (TDD)
+#### 23.4 — Apache Tika Client for Server (TDD)
+
+**File:** `internal/parser/tika_test.go`
+
+```go
+package parser_test
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/p-n-ai/oss-bot/internal/parser"
+)
+
+func TestTikaParser(t *testing.T) {
+	// Mock Tika server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("Extracted text from document"))
+	}))
+	defer server.Close()
+
+	p := parser.NewTikaParser(server.URL)
+
+	t.Run("supported-types", func(t *testing.T) {
+		types := p.SupportedTypes()
+		if len(types) < 5 {
+			t.Errorf("SupportedTypes() should return many types, got %d", len(types))
+		}
+	})
+
+	t.Run("extract-document", func(t *testing.T) {
+		text, err := p.Extract(context.Background(), []byte("fake doc content"), "application/pdf")
+		if err != nil {
+			t.Fatalf("Extract() error = %v", err)
+		}
+		if text == "" {
+			t.Error("Extract() returned empty text")
+		}
+	})
+
+	t.Run("empty-input", func(t *testing.T) {
+		_, err := p.Extract(context.Background(), nil, "application/pdf")
+		if err == nil {
+			t.Error("Extract() should error for empty input")
+		}
+	})
+}
+
+func TestTikaParserUnreachable(t *testing.T) {
+	p := parser.NewTikaParser("http://localhost:1") // unreachable
+
+	_, err := p.Extract(context.Background(), []byte("content"), "application/pdf")
+	if err == nil {
+		t.Error("Extract() should error when Tika is unreachable")
+	}
+}
+```
+
+**File:** `internal/parser/tika.go`
+
+```go
+package parser
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"bytes"
+)
+
+// TikaParser implements DocumentParser using Apache Tika server.
+// Used by the Bot and Web Portal for multi-format document extraction.
+// Requires a running Tika instance (Docker sidecar).
+type TikaParser struct {
+	tikaURL string
+	client  *http.Client
+}
+
+// NewTikaParser creates a parser that connects to an Apache Tika server.
+// tikaURL is typically "http://tika:9998" in Docker or "http://localhost:9998" locally.
+func NewTikaParser(tikaURL string) *TikaParser {
+	return &TikaParser{
+		tikaURL: tikaURL,
+		client:  &http.Client{},
+	}
+}
+
+func (p *TikaParser) Extract(ctx context.Context, input []byte, mimeType string) (string, error) {
+	if len(input) == 0 {
+		return "", fmt.Errorf("empty input")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", p.tikaURL+"/tika", bytes.NewReader(input))
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Accept", "text/plain")
+	if mimeType != "" {
+		req.Header.Set("Content-Type", mimeType)
+	}
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("calling Tika server at %s: %w", p.tikaURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Tika returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading Tika response: %w", err)
+	}
+
+	return string(body), nil
+}
+
+func (p *TikaParser) SupportedTypes() []string {
+	return []string{
+		"application/pdf",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",   // DOCX
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation", // PPTX
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",         // XLSX
+		"text/html",
+		"application/rtf",
+		"application/epub+zip",
+	}
+}
+```
+
+#### 23.5 — Scaffolder (TDD)
 
 **File:** `internal/generator/scaffolder_test.go` and `internal/generator/scaffolder.go`
 
-The scaffolder takes extracted PDF text (or manual input) and generates a complete syllabus directory structure with Level 0-1 topic stubs.
+The scaffolder takes extracted document text (from either PDFParser or TikaParser) and generates a complete syllabus directory structure with Level 0-1 topic stubs.
 
 #### Day 23 Validation
 
@@ -4369,19 +4599,21 @@ go test ./...
 
 #### Day 23 Exit Criteria
 
-- [ ] `prompts/pdf_import.md` created
-- [ ] `internal/parser/pdf.go` + tests — PDF text extraction (stub with library integration)
+- [ ] `prompts/document_import.md` created
+- [ ] `internal/parser/document.go` — `DocumentParser` interface
+- [ ] `internal/parser/pdf.go` + tests — Go-native PDF extraction (CLI)
+- [ ] `internal/parser/tika.go` + tests — Apache Tika multi-format extraction (server)
 - [ ] `internal/generator/scaffolder.go` + tests — generates syllabus structure from parsed content
 - [ ] `@oss-bot quality` responds with quality report as issue comment
 - [ ] `go test ./...` passes
 
-**Progress:** CLI + Bot + PDF import + scaffolder | 5 packages | 5 prompt templates
+**Progress:** CLI + Bot + document import (hybrid) + scaffolder | 5 packages | 5 prompt templates
 
 ---
 
 ### Day 24 — Contribution Parser + Feedback API
 
-**Entry criteria:** Day 23 complete. PDF import and scaffolder work.
+**Entry criteria:** Day 23 complete. Document import (hybrid) and scaffolder work.
 
 #### Tasks
 
@@ -5461,9 +5693,25 @@ services:
       - "3001:3001"
     env_file:
       - .env
+    environment:
+      - OSS_TIKA_URL=http://tika:9998
+    depends_on:
+      tika:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  tika:
+    image: apache/tika:latest
+    ports:
+      - "9998:9998"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9998/tika"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -5566,7 +5814,7 @@ Write the oss-bot section of the 6-week report covering:
 | `internal/validator` | Day 16-17 | `validator.go`, `bloom.go`, `prerequisites.go`, `duplicates.go`, `quality.go` | JSON Schema validation, content quality checks |
 | `internal/ai` | Day 18 | `provider.go`, `mock.go`, `openai.go`, `anthropic.go`, `ollama.go` | AI provider interface (shared with P&AI Bot) |
 | `internal/generator` | Day 18-20 | `context.go`, `teaching_notes.go`, `assessments.go`, `examples.go`, `translator.go`, `scaffolder.go` | Content generation pipeline |
-| `internal/parser` | Day 23-24 | `pdf.go`, `contribution.go` | PDF extraction, natural language parsing |
+| `internal/parser` | Day 23-24 | `document.go`, `pdf.go`, `tika.go`, `contribution.go` | DocumentParser interface, Go-native PDF (CLI), Tika multi-format (server), natural language parsing |
 | `internal/github` | Day 21-22 | `app.go`, `webhook.go`, `pr.go`, `contents.go` | GitHub App auth, webhooks, PR creation |
 | `internal/api` | Day 24-28 | `router.go`, `preview.go`, `submit.go`, `feedback.go`, `curricula.go` | Web portal HTTP API |
 
@@ -5580,7 +5828,7 @@ Write the oss-bot section of the 6-week report covering:
 | `prompts/assessments.md` | Day 18 | Generate `.assessments.yaml` files |
 | `prompts/examples.md` | Day 19 | Generate `.examples.yaml` files |
 | `prompts/translation.md` | Day 20 | Translate topic files to other languages |
-| `prompts/pdf_import.md` | Day 23 | Extract curriculum structure from PDF |
+| `prompts/document_import.md` | Day 23 | Extract curriculum structure from documents (PDF, DOCX, PPTX, HTML) |
 | `prompts/contribution_parser.md` | Day 24 | Parse natural language into structured data |
 
 ---
@@ -5601,6 +5849,7 @@ Write the oss-bot section of the 6-week report covering:
 | `OSS_BOT_PORT` | 5 | Bot | `8090` |
 | `OSS_WEB_PORT` | 6 | Web Portal | `3001` |
 | `OSS_PROMPTS_DIR` | 4 | All | `./prompts` |
+| `OSS_TIKA_URL` | 5 | Bot, Web Portal | `http://tika:9998` |
 | `OSS_LOG_LEVEL` | 4 | All | `info` |
 
 ---
@@ -5612,7 +5861,8 @@ Write the oss-bot section of the 6-week report covering:
 | `oss validate` (full repo) | <2s | `time go run ./cmd/oss validate ../oss` |
 | Teaching notes generation | <15s | `time go run ./cmd/oss generate teaching-notes F1-01` |
 | Assessment generation (5 questions) | <10s | `time go run ./cmd/oss generate assessments F1-01 -c 5` |
-| PDF import (50-page syllabus) | <60s | `time go run ./cmd/oss import --pdf test.pdf` |
+| PDF import, CLI (50-page syllabus) | <60s | `time go run ./cmd/oss import --pdf test.pdf` |
+| Document import, server (50-page, any format) | <90s | Measure via API with DOCX/PPTX/HTML input |
 | Bot webhook → PR created | <30s | Measure from webhook receipt to PR URL comment |
 | Web portal preview | <5s | Measure from submit to preview render |
 | CLI startup | <100ms | `time go run ./cmd/oss --help` |

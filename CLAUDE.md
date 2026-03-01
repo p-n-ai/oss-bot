@@ -21,7 +21,8 @@ All tools share a single AI content generation pipeline: Context Building -> AI 
 - **YAML:** `gopkg.in/yaml.v3`
 - **JSON Schema:** `santhosh-tekuri/jsonschema/v5`
 - **JWT Auth:** `golang-jwt/jwt/v5`
-- **PDF Parsing:** `ledongthuc/pdf` or `unidoc/unipdf`
+- **PDF Parsing (CLI):** `ledongthuc/pdf` (lightweight, standalone)
+- **Document Parsing (Server):** Apache Tika via `google/go-tika` (PDF, DOCX, PPTX, XLSX, HTML — Docker sidecar)
 - **Logging:** `log/slog` (stdlib)
 - **HTTP:** `net/http` (stdlib, Go 1.22+ router)
 - **Config:** Environment variables with `OSS_` prefix
@@ -57,17 +58,19 @@ oss-bot/
 │   │   ├── examples.go
 │   │   ├── translator.go
 │   │   ├── scaffolder.go
-│   │   └── importer.go              # PDF -> curriculum import
+│   │   └── importer.go              # Document -> curriculum import (PDF, DOCX, PPTX, HTML)
 │   ├── validator/                   # Schema validation
 │   │   ├── validator.go             # JSON Schema engine
 │   │   ├── bloom.go                 # Bloom's taxonomy checks
 │   │   ├── prerequisites.go         # Prerequisite graph cycle detection
 │   │   ├── duplicates.go            # Duplicate content detection
 │   │   └── quality.go               # Quality level assessment
-│   ├── parser/                      # Input parsing
+│   ├── parser/                      # Input parsing + document extraction
 │   │   ├── command.go               # Parse @oss-bot commands
 │   │   ├── contribution.go          # Natural language -> structured data
-│   │   └── pdf.go                   # PDF text extraction
+│   │   ├── document.go              # DocumentParser interface
+│   │   ├── pdf.go                   # PDF text extraction (Go-native, for CLI)
+│   │   └── tika.go                  # Apache Tika client (multi-format, for server)
 │   ├── github/                      # GitHub API integration
 │   │   ├── app.go                   # GitHub App auth (JWT + installation tokens)
 │   │   ├── webhook.go               # Webhook handler + HMAC verification
@@ -88,7 +91,7 @@ oss-bot/
 │   ├── examples.md
 │   ├── translation.md
 │   ├── contribution_parser.md
-│   └── pdf_import.md
+│   └── document_import.md           # Curriculum import (PDF, DOCX, PPTX, HTML)
 ├── deploy/
 │   └── docker/
 │       ├── Dockerfile               # Multi-stage: Go + Web build
@@ -107,6 +110,8 @@ oss-bot/
 # CLI development
 go run ./cmd/oss validate                    # Validate all YAML in local OSS clone
 go run ./cmd/oss validate --file <path>      # Validate single file
+go run ./cmd/oss import --pdf <file>                 # Import from PDF (CLI, Go-native)
+go run ./cmd/oss import --file <file>                # Import from any format (requires Tika)
 go run ./cmd/oss generate teaching-notes <topic-path>
 go run ./cmd/oss generate assessments <topic-path> --count 5 --difficulty medium
 go run ./cmd/oss translate --topic <path> --to <lang>
@@ -126,7 +131,7 @@ make lint                                         # golangci-lint
 
 # Build
 make build-cli                                    # Output: ./bin/oss
-make docker                                       # Multi-stage Docker image
+make docker                                       # Multi-stage Docker image (includes Tika sidecar)
 make setup                                        # First-time setup
 ```
 
@@ -161,6 +166,18 @@ _metadata:
   generated_at: "<ISO-8601>"
 ```
 
+### Document Parsing (Hybrid Approach)
+The project uses a hybrid approach for document import:
+- **CLI (`oss import --pdf`):** Uses `ledongthuc/pdf` (Go-native). Lightweight, no external dependencies. PDF-only.
+- **Server (Bot + Web Portal):** Uses Apache Tika as a Docker sidecar via `google/go-tika`. Supports PDF, DOCX, PPTX, XLSX, HTML, and 1000+ other formats.
+
+Both implementations share the `DocumentParser` interface in `internal/parser/document.go`:
+```go
+type DocumentParser interface {
+    Extract(ctx context.Context, input []byte, mimeType string) (string, error)
+}
+```
+
 ### Prompt Templates
 Located in `prompts/` as Markdown files with template variables (e.g., `{{topic}}`, `{{prerequisites}}`). These encode pedagogical best practices and output format requirements.
 
@@ -178,6 +195,7 @@ All config uses `OSS_` prefix. Key variables:
 | `OSS_GITHUB_WEBHOOK_SECRET` | Yes (bot) | Webhook HMAC secret |
 | `OSS_REPO_OWNER` | Yes | GitHub org/user (default: `p-n-ai`) |
 | `OSS_REPO_NAME` | Yes | Repository name (default: `oss`) |
+| `OSS_TIKA_URL` | No | Tika server URL (default: `http://tika:9998`, server only) |
 
 *Not needed for Ollama.
 

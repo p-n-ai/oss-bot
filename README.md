@@ -70,13 +70,13 @@ Generates a Malay translation of the topic, matching the source structure exactl
 
 Creates the directory structure, syllabus.yaml, subject files, and topic stubs (Level 0) based on publicly available curriculum information. Opens a PR with a completeness checklist.
 
-#### Import from PDF
+#### Import from Document
 
 ```
-@oss-bot import --pdf [attached PDF]
+@oss-bot import [attached file]
 ```
 
-Attach a curriculum PDF to the issue. The bot extracts the structure, maps it to OSS schema, infers Bloom's taxonomy levels from specification verbs, and creates topic stubs. Opens a PR tagged `needs-educator-review`.
+Attach a curriculum document (PDF, DOCX, PPTX, XLSX, or HTML) to the issue. The bot extracts the structure using Apache Tika, maps it to OSS schema, infers Bloom's taxonomy levels from specification verbs, and creates topic stubs. Opens a PR tagged `needs-educator-review`.
 
 #### Enrich from Classroom Experience
 
@@ -170,18 +170,22 @@ oss generate examples cambridge/igcse/mathematics-0580/topics/algebra/05-quadrat
 
 Generated files are written to the local OSS clone. Review them, then commit and PR.
 
-#### Import from PDF
+#### Import from Documents
 
 ```bash
-# Import a curriculum from a PDF document
+# Import from PDF (CLI — lightweight, no external dependencies)
 oss import --pdf ./cambridge-igcse-maths-2025-syllabus.pdf --board cambridge --level igcse --subject mathematics
 
-# Import with more guidance
-oss import --pdf ./kssm-form4.pdf --board malaysia --level kssm --subject mathematics --language ms
+# Import from any format (requires Apache Tika server running)
+oss import --file ./kssm-form4.docx --board malaysia --level kssm --subject mathematics --language ms
+oss import --file ./curriculum.pptx --board cambridge --level igcse --subject mathematics
+oss import --file ./syllabus.html --board india --level cbse --subject mathematics
 ```
 
+The CLI uses Go-native PDF extraction (`ledongthuc/pdf`) for standalone `--pdf` imports. The `--file` flag supports any format (PDF, DOCX, PPTX, XLSX, HTML) via Apache Tika. The server (Bot + Web Portal) always uses Tika for broad format support.
+
 The importer:
-1. Extracts text and structure from the PDF
+1. Extracts text and structure from the document
 2. Identifies subjects, topics, and learning objectives
 3. Infers Bloom's taxonomy levels from specification verbs ("State" → remember, "Calculate" → apply, "Evaluate" → evaluate)
 4. Maps prerequisite relationships between topics
@@ -274,9 +278,14 @@ oss contribute "I teach IGCSE Math. For quadratic equations, I've found that sta
 ### AI Content Generation Pipeline
 
 ```
-Input (natural language, PDF, or structured command)
+Input (natural language, document [PDF/DOCX/PPTX/XLSX/HTML], or structured command)
     │
     ▼
+┌──────────────────────┐
+│  Document Extraction  │  (CLI: Go-native PDF | Server: Apache Tika)
+└──────────┬───────────┘
+           │
+           ▼
 ┌──────────────────────┐
 │  Context Builder      │
 │  - Load topic YAML    │
@@ -346,17 +355,19 @@ oss-bot/
 │   │   ├── examples.go
 │   │   ├── translator.go
 │   │   ├── scaffolder.go        # New syllabus scaffolding
-│   │   └── importer.go          # PDF import
+│   │   └── importer.go          # Document import (PDF, DOCX, PPTX, HTML)
 │   ├── validator/               # Schema validation
 │   │   ├── validator.go         # JSON Schema engine
 │   │   ├── bloom.go             # Bloom's taxonomy checks
 │   │   ├── prerequisites.go     # Prerequisite graph integrity
 │   │   ├── duplicates.go        # Duplicate content detection
 │   │   └── quality.go           # Quality level assessment
-│   ├── parser/                  # Input parsing
+│   ├── parser/                  # Input parsing + document extraction
 │   │   ├── command.go           # Parse @oss-bot commands
 │   │   ├── contribution.go      # Natural language → structured data
-│   │   └── pdf.go               # PDF text extraction
+│   │   ├── document.go          # DocumentParser interface
+│   │   ├── pdf.go               # Go-native PDF extraction (CLI)
+│   │   └── tika.go              # Apache Tika multi-format extraction (server)
 │   ├── github/                  # GitHub API integration
 │   │   ├── app.go               # GitHub App authentication
 │   │   ├── webhook.go           # Webhook handler + HMAC verification
@@ -380,7 +391,7 @@ oss-bot/
 │   ├── examples.md
 │   ├── translation.md
 │   ├── contribution_parser.md
-│   └── pdf_import.md
+│   └── document_import.md       # Curriculum import (PDF, DOCX, PPTX, HTML)
 ├── scripts/                     # Dev scripts
 │   ├── setup.sh
 │   └── test-webhook.sh
@@ -407,7 +418,7 @@ git clone https://github.com/p-n-ai/oss-bot.git
 cd oss-bot
 cp .env.example .env
 # Edit .env with your GitHub App credentials and AI API key
-docker compose up -d
+docker compose up -d    # Starts bot, web portal, and Apache Tika sidecar
 ```
 
 ### GitHub App Setup
@@ -431,6 +442,7 @@ docker compose up -d
 | `OSS_AI_PROVIDER` | Yes | `openai`, `anthropic`, or `ollama` |
 | `OSS_AI_API_KEY` | No* | API key for the chosen provider |
 | `OSS_AI_OLLAMA_URL` | No | Ollama base URL (default: `http://ollama:11434`) |
+| `OSS_TIKA_URL` | No | Apache Tika server URL (default: `http://tika:9998`) |
 | `OSS_WEB_PORT` | No | Web portal port (default: `3001`) |
 
 *Not needed for Ollama.
@@ -443,6 +455,7 @@ docker compose up -d
 
 - Go 1.22+
 - Node.js 20+ (for the web portal)
+- Docker (for Apache Tika sidecar — required for multi-format document import)
 - A local clone of [p-n-ai/oss](https://github.com/p-n-ai/oss)
 
 ### Local Development

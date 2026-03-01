@@ -70,7 +70,8 @@ OSS Bot uses Go to match the P&AI Bot stack, enabling code sharing and consisten
 | **GitHub API** | `google/go-github` | v6 | GitHub App authentication, PR creation, issue commenting, file operations. |
 | **YAML Parsing** | `go-yaml/yaml` | v3 | Read and write OSS curriculum YAML files. |
 | **JSON Schema** | `santhosh-tekuri/jsonschema` | v5 | In-process schema validation (no shelling out to ajv). |
-| **PDF Parsing** | `ledongthuc/pdf` or `unidoc/unipdf` | latest | Extract text and structure from curriculum PDF documents. |
+| **PDF Parsing (CLI)** | `ledongthuc/pdf` | latest | Lightweight Go-native PDF text extraction for standalone CLI use. |
+| **Document Parsing (Server)** | Apache Tika via `google/go-tika` | latest | Multi-format document extraction (PDF, DOCX, PPTX, XLSX, HTML, 1000+ types). Runs as Docker sidecar for Bot + Web Portal. |
 | **CLI Framework** | `spf13/cobra` | v1 | Industry-standard Go CLI framework. Subcommands, flags, help generation. |
 | **Configuration** | Environment variables | — | All config via `OSS_` prefixed env vars. |
 | **Testing** | Go stdlib `testing` | — | Table-driven tests. Mock AI providers for deterministic output. |
@@ -130,7 +131,7 @@ type AIProvider interface {
 | `add N assessments` | `@oss-bot add 5 assessments for .../03-simultaneous-equations difficulty:medium` | Generate `.assessments.yaml`, open PR |
 | `translate` | `@oss-bot translate .../01-expressions to ms` | Generate translated YAML in `locales/ms/`, open PR tagged `needs-native-review` |
 | `scaffold syllabus` | `@oss-bot scaffold syllabus india/cbse/mathematics-class10` | Create directory structure + Level 0 stubs, open PR with completeness checklist |
-| `import --pdf` | `@oss-bot import --pdf [attached PDF]` | Extract structure from PDF, generate Level 0–1 stubs, open PR |
+| `import` | `@oss-bot import [attached file]` | Extract structure from document (PDF, DOCX, PPTX, XLSX, HTML via Tika), generate Level 0–1 stubs, open PR |
 | `enrich` | `@oss-bot enrich .../05-quadratic-equations` (with natural language body) | Parse teacher's experience into structured misconceptions, teaching notes, open PR |
 | `quality` | `@oss-bot quality cambridge/igcse/mathematics-0580` | Comment with quality report (no PR) |
 
@@ -187,7 +188,8 @@ curl -sSL https://github.com/p-n-ai/oss-bot/releases/latest/download/oss-$(uname
 | `oss generate teaching-notes <topic-path>` | Generate AI teaching notes | Yes |
 | `oss generate assessments <topic-path> --count N --difficulty <level>` | Generate assessment questions | Yes |
 | `oss generate examples <topic-path> --count N` | Generate worked examples | Yes |
-| `oss import --pdf <file> --board <board> --level <level> --subject <subject>` | Import curriculum from PDF | Yes |
+| `oss import --pdf <file> --board <board> --level <level> --subject <subject>` | Import curriculum from PDF (Go-native, no Tika needed) | Yes |
+| `oss import --file <file> --board <board> --level <level> --subject <subject>` | Import from any format (DOCX, PPTX, XLSX, HTML — requires Tika) | Yes |
 | `oss translate --topic <path> --to <lang>` | Translate topic to target language | Yes |
 | `oss translate --syllabus <path> --to <lang>` | Translate all topics in a syllabus | Yes |
 | `oss quality <syllabus-path>` | Quality report for a syllabus | No |
@@ -201,7 +203,7 @@ cmd/oss/main.go
     ├── cobra root command
     │   ├── validate subcommand  → internal/validator/
     │   ├── generate subcommand  → internal/generator/
-    │   ├── import subcommand    → internal/parser/pdf.go → internal/generator/
+    │   ├── import subcommand    → internal/parser/document.go → internal/generator/
     │   ├── translate subcommand → internal/generator/translator.go
     │   ├── quality subcommand   → internal/validator/ (quality assessment mode)
     │   └── contribute subcommand→ internal/parser/contribution.go → internal/generator/
@@ -283,7 +285,8 @@ Input (command + topic path + optional natural language)
 │  ├── prompts/assessments.md          │
 │  ├── prompts/examples.md             │
 │  ├── prompts/translation.md          │
-│  └── prompts/contribution_parser.md  │
+│  ├── prompts/contribution_parser.md  │
+│  └── prompts/document_import.md      │
 │                                      │
 │  Inject context into template        │
 │  Call AI provider (streaming)        │
@@ -334,7 +337,7 @@ Prompt templates live in `prompts/` as Markdown files with template variables. E
 | `examples.md` | Generate `.examples.yaml` files | Worked examples with step-by-step solutions. Progressive difficulty. Connect to real-world contexts. |
 | `translation.md` | Translate topic files | Preserve structure exactly. Translate only human-readable text fields. Use mathematically correct terminology in target language. |
 | `contribution_parser.md` | Parse natural language into structured data | Identify contribution type (misconception, teaching note, assessment, etc.). Extract structured fields. Preserve teacher's voice where possible. |
-| `pdf_import.md` | Extract curriculum structure from PDF | Identify subjects, topics, learning objectives. Infer Bloom's levels from specification verbs. Map prerequisite relationships. |
+| `document_import.md` | Extract curriculum structure from documents | Identify subjects, topics, learning objectives. Infer Bloom's levels from specification verbs. Map prerequisite relationships. Supports PDF, DOCX, PPTX, HTML input (text pre-extracted by parser). |
 
 ### 4.3 Context Building Strategy
 
@@ -386,17 +389,19 @@ oss-bot/
 │   │   ├── examples.go              # Worked examples generator
 │   │   ├── translator.go            # Topic translation
 │   │   ├── scaffolder.go            # New syllabus scaffolding
-│   │   └── importer.go              # PDF → structured curriculum import
+│   │   └── importer.go              # Document → structured curriculum import (PDF, DOCX, PPTX, HTML)
 │   ├── validator/                   # Schema validation (Stage 3)
 │   │   ├── validator.go             # JSON Schema validation engine
 │   │   ├── bloom.go                 # Bloom's taxonomy level verification
 │   │   ├── prerequisites.go         # Prerequisite graph cycle detection
 │   │   ├── duplicates.go            # Duplicate content detection
 │   │   └── quality.go               # Quality level auto-assessment
-│   ├── parser/                      # Input parsing
+│   ├── parser/                      # Input parsing + document extraction
 │   │   ├── command.go               # Parse @oss-bot commands from comments
 │   │   ├── contribution.go          # Natural language → structured contribution
-│   │   └── pdf.go                   # PDF text extraction and structure detection
+│   │   ├── document.go              # DocumentParser interface
+│   │   ├── pdf.go                   # Go-native PDF text extraction (CLI)
+│   │   └── tika.go                  # Apache Tika multi-format extraction (server)
 │   ├── github/                      # GitHub API integration
 │   │   ├── app.go                   # GitHub App authentication (JWT + installation tokens)
 │   │   ├── webhook.go               # Webhook handler + HMAC verification
@@ -433,7 +438,7 @@ oss-bot/
 │   ├── examples.md
 │   ├── translation.md
 │   ├── contribution_parser.md
-│   └── pdf_import.md
+│   └── document_import.md           # Curriculum import (PDF, DOCX, PPTX, HTML)
 ├── deploy/
 │   ├── docker/
 │   │   ├── Dockerfile               # Multi-stage: Go build + Web build
@@ -572,10 +577,11 @@ GitHub PR
 |-----------|-----------|------|
 | **GitHub Bot** | Go binary on Docker | ~$10/month (small VPS) |
 | **Web Portal** | Next.js on Docker | ~$10/month (same VPS) |
+| **Apache Tika** | Document extraction sidecar | Included (same VPS, ~1-2 GB RAM) |
 | **Ollama** (optional) | Self-hosted LLM | ~$30/month (if GPU instance) |
 | **Total** | | **~$20–50/month** |
 
-Both the Go server and Next.js portal run as Docker containers via `docker-compose.yml` on a single VPS. Scales with contribution volume — at low volume (<100 contributions/month), a $10 VPS is sufficient.
+The Go server, Next.js portal, and Apache Tika run as Docker containers via `docker-compose.yml` on a single VPS. Tika runs as a sidecar for multi-format document extraction (PDF, DOCX, PPTX, XLSX, HTML). The CLI operates standalone without Tika for PDF-only import.
 
 ### 8.2 Self-Hosted (For OSS Forks)
 
@@ -586,7 +592,7 @@ git clone https://github.com/p-n-ai/oss-bot.git
 cd oss-bot
 cp .env.example .env
 # Edit .env: GitHub App credentials, AI API key, target repo
-docker compose up -d
+docker compose up -d    # Starts bot, web portal, and Tika sidecar
 ```
 
 **GitHub App setup:**
@@ -651,6 +657,7 @@ All configuration via environment variables with `OSS_` prefix.
 | `OSS_BOT_PORT` | No | `8090` | Webhook handler HTTP port |
 | `OSS_LOG_LEVEL` | No | `info` | `debug`, `info`, `warn`, `error` |
 | `OSS_PROMPTS_DIR` | No | `./prompts` | Path to prompt template directory |
+| `OSS_TIKA_URL` | No | `http://tika:9998` | Apache Tika server URL (server only, not needed for CLI) |
 | `OSS_GITHUB_TOKEN` | No (CLI) | — | Personal access token for CLI PR creation |
 
 *Not needed for Ollama.
@@ -666,6 +673,7 @@ All configuration via environment variables with `OSS_` prefix.
 | go-yaml | YAML parsing/writing | `gopkg.in/yaml.v3` |
 | jsonschema | JSON Schema validation | `github.com/santhosh-tekuri/jsonschema/v5` |
 | jwt | GitHub App JWT auth | `github.com/golang-jwt/jwt/v5` |
+| go-tika | Apache Tika Go client | `github.com/google/go-tika/tika` |
 | slog | Structured logging | `log/slog` (stdlib) |
 
 ---
@@ -708,7 +716,8 @@ make docker                          # Build multi-stage image
 |--------|--------|----------|
 | AI generation latency | <15s for teaching notes, <10s for assessments | Streaming responses. Context limited to ~8K tokens to keep within fast completion range. |
 | Validation latency | <500ms per file | In-process JSON Schema validation (no subprocess). Schema compiled once at startup. |
-| PDF import | <60s for a 50-page PDF | Parallel page extraction. Streaming AI processing per section. |
+| Document import (CLI, PDF) | <60s for a 50-page PDF | Go-native PDF extraction. Streaming AI processing per section. |
+| Document import (Server, multi-format) | <90s for a 50-page document | Tika extraction + streaming AI processing. Supports PDF, DOCX, PPTX, XLSX, HTML. |
 | Concurrent webhook handling | 50 simultaneous events | Go goroutines. Each webhook processed independently. |
 | CLI startup time | <100ms | Single Go binary, no runtime. |
 
