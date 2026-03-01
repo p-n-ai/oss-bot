@@ -385,4 +385,4 @@ The world's best teaching strategies live in the heads of individual teachers. O
 
 ---
 
-*A [Pandai](https://pandai.app) initiative. Tooling for the world's open curriculum.*
+*A [Pandai](https://pandai.org) initiative. Tooling for the world's open curriculum.*

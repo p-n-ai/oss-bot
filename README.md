@@ -485,5 +485,5 @@ OSS Bot is licensed under the [Apache License 2.0](LICENSE).
 <p align="center">
   <strong>Making it easy for anyone to contribute to the world's open curriculum.</strong>
   <br>
-  A <a href="https://pandai.app">Pandai</a> initiative.
+  A <a href="https://pandai.org">Pandai</a> initiative. Built with ❤️ by educators and AI, for everyone.
 </p>
