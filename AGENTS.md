@@ -33,13 +33,33 @@ When requirements conflict, use this precedence:
 
 1. User request in the active task
 2. `docs/technical-plan.md` (architecture and technical direction)
-3. `docs/development-timeline.md` (sequencing and milestones)
+3. `docs/development-timeline.md` + `docs/implementation-guide.md` (sequencing, milestones, and executable instructions — **always use both together**)
 4. `docs/business-plan.md` (product context and goals)
 5. `README.md` (public overview)
 
 `CLAUDE.md` and this file should stay aligned with the docs above.
 
-## 4. Rules for Coding Agents
+## 4. Daily Implementation — Required Reading
+
+**MANDATORY:** Before starting any day's implementation work, you MUST read and cross-reference BOTH of these documents:
+
+1. **`docs/development-timeline.md`** — the daily task breakdown with task IDs, ownership, and sequencing
+2. **`docs/implementation-guide.md`** — step-by-step executable instructions with code templates, tests, file paths, entry/exit criteria, and validation commands
+
+These two documents are complementary and both are required:
+- The **timeline** tells you WHAT to build each day and in what order (task IDs like `B-W4D16-1`)
+- The **implementation guide** tells you HOW to build it (exact file paths, code, tests, validation steps)
+
+**Do not implement from the timeline alone** — it lacks the detail needed for correct implementation. **Do not implement from the guide alone** — you may miss sequencing dependencies and ownership context from the timeline.
+
+For each day:
+1. Read the day's section in both documents
+2. Check **entry criteria** in the implementation guide before starting
+3. Follow the TDD workflow (see below) for each task
+4. Run **validation commands** from the implementation guide
+5. Verify all **exit criteria** checkboxes before moving to the next day
+
+## 5. Rules for Coding Agents
 
 - Start by verifying actual files on disk before referencing project structure.
 - Treat future-state architecture in docs as **planned**, not already implemented.
@@ -66,7 +86,7 @@ Testing conventions:
 - Mock AI providers for deterministic output — never call real AI APIs in tests.
 - Test files live alongside source: `validator.go` → `validator_test.go`.
 
-## 5. Documentation Update Expectations
+## 6. Documentation Update Expectations
 
 When editing docs:
 
@@ -80,7 +100,7 @@ When editing docs:
   - `p-n-ai/oss`
   - `p-n-ai/pai-bot`
 
-## 6. If You Add Initial Code
+## 7. If You Add Initial Code
 
 If a task introduces first implementation files, also update these docs in the same task:
 
@@ -88,7 +108,7 @@ If a task introduces first implementation files, also update these docs in the s
 - `AGENTS.md`: update the "Repository Status" section and existing paths
 - `CLAUDE.md`: keep in sync with the implemented structure
 
-## 7. Suggested Validation Checklist
+## 8. Suggested Validation Checklist
 
 Before finishing any task:
 

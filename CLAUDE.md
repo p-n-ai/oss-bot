@@ -208,6 +208,27 @@ All config uses `OSS_` prefix. Key variables:
 
 ## Development Workflow
 
+### Daily Implementation — Required Reading
+
+**MANDATORY:** Before starting any day's implementation work, you MUST read and cross-reference BOTH of these documents:
+
+1. **[`docs/development-timeline.md`](docs/development-timeline.md)** — the daily task breakdown with task IDs, ownership, and sequencing
+2. **[`docs/implementation-guide.md`](docs/implementation-guide.md)** — the step-by-step executable instructions with code templates, tests, file paths, entry/exit criteria, and validation commands
+
+These two documents are complementary and both are required:
+- The **timeline** tells you WHAT to build each day and in what order (task IDs like `B-W4D16-1`)
+- The **implementation guide** tells you HOW to build it (exact file paths, code, tests, validation steps)
+
+**Do not implement from the timeline alone** — it lacks the detail needed for correct implementation. **Do not implement from the guide alone** — you may miss sequencing dependencies and ownership context from the timeline.
+
+Workflow for each day:
+1. Read the day's section in `docs/development-timeline.md` for task overview
+2. Read the matching day's section in `docs/implementation-guide.md` for detailed instructions
+3. Check **entry criteria** in the guide before starting
+4. Follow the TDD workflow below for each task
+5. Run **validation commands** from the guide
+6. Verify all **exit criteria** checkboxes before moving to the next day
+
 ### Test-Driven Development (TDD)
 This project follows a strict test-first approach. Every feature goes through this cycle:
 
