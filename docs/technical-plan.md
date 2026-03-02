@@ -14,30 +14,30 @@ OSS Bot is a **tooling layer** for the [Open School Syllabus](https://github.com
 ┌───────────────────────────────────────────────────────────────┐
 │  Input Interfaces                                             │
 │                                                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
-│  │ GitHub Bot   │  │ CLI Tool     │  │ Web Portal          │ │
-│  │ (@oss-bot)   │  │ (oss)        │  │ (contribute.        │ │
-│  │              │  │              │  │  opensyllabus.org)   │ │
-│  │ Webhook      │  │ Binary       │  │ Next.js             │ │
-│  └──────┬───────┘  └──────┬───────┘  └──────────┬──────────┘ │
-│         │                 │                      │            │
-│         └─────────────────┼──────────────────────┘            │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────┐  │
+│  │ GitHub Bot   │  │ CLI Tool     │  │ Web Portal          │  │
+│  │ (@oss-bot)   │  │ (oss)        │  │ (contribute.        │  │
+│  │              │  │              │  │  opensyllabus.org)  │  │
+│  │ Webhook      │  │ Binary       │  │ Next.js             │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬──────────┘  │
+│         │                 │                     │             │
+│         └─────────────────┼─────────────────────┘             │
 │                           ▼                                   │
 │  ┌────────────────────────────────────────────────────────┐   │
 │  │  Shared Pipeline                                       │   │
 │  │                                                        │   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │   │
-│  │  │ Context      │  │ AI Content   │  │ Validation   │ │   │
-│  │  │ Builder      │  │ Generator    │  │ Engine       │ │   │
-│  │  │              │  │              │  │              │ │   │
-│  │  │ Load topic   │  │ Pedagogical  │  │ JSON Schema  │ │   │
-│  │  │ Load related │  │ prompts      │  │ Bloom's check│ │   │
-│  │  │ Load schema  │  │ Schema-aware │  │ Prereq graph │ │   │
-│  │  │ Load existing│  │ Style match  │  │ Duplicate det│ │   │
-│  │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘ │   │
-│  │         └─────────────────┼──────────────────┘         │   │
-│  └────────────────────────────┼───────────────────────────┘   │
-│                               ▼                               │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │   │
+│  │  │ Context      │  │ AI Content   │  │ Validation   │  │   │
+│  │  │ Builder      │  │ Generator    │  │ Engine       │  │   │
+│  │  │              │  │              │  │              │  │   │
+│  │  │ Load topic   │  │ Pedagogical  │  │ JSON Schema  │  │   │
+│  │  │ Load related │  │ prompts      │  │ Bloom's check│  │   │
+│  │  │ Load schema  │  │ Schema-aware │  │ Prereq graph │  │   │
+│  │  │ Load existing│  │ Style match  │  │ Duplicate det│  │   │
+│  │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  │   │
+│  │         └─────────────────┼─────────────────┘          │   │
+│  └───────────────────────────┼────────────────────────────┘   │
+│                              ▼                                │
 │  ┌────────────────────────────────────────────────────────┐   │
 │  │  Output Layer                                          │   │
 │  │  ├── Write YAML/Markdown files                         │   │

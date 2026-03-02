@@ -159,39 +159,39 @@ Every generation follows the same pipeline regardless of interface:
 Input (natural language, command, or PDF)
     │
     ▼
-┌─────────────────────────┐
+┌──────────────────────────┐
 │  1. Context Building     │  Load topic YAML, related topics,
 │                          │  existing content, schema rules,
 │                          │  quality standards
-└──────────┬──────────────┘
+└──────────┬───────────────┘
            │
            ▼
-┌─────────────────────────┐
+┌──────────────────────────┐
 │  2. AI Generation        │  Pedagogical prompt + schema-aware
 │                          │  output constraints + style matching
 │                          │  to existing content
-└──────────┬──────────────┘
+└──────────┬───────────────┘
            │
            ▼
-┌─────────────────────────┐
+┌──────────────────────────┐
 │  3. Validation           │  JSON Schema check, Bloom's taxonomy
 │                          │  verification, prerequisite graph
 │                          │  consistency, duplicate detection
-└──────────┬──────────────┘
+└──────────┬───────────────┘
            │
            ▼
-┌─────────────────────────┐
+┌──────────────────────────┐
 │  4. Quality Assessment   │  Self-assess quality level,
 │                          │  identify what's missing for
 │                          │  the next level
-└──────────┬──────────────┘
+└──────────┬───────────────┘
            │
            ▼
-┌─────────────────────────┐
+┌──────────────────────────┐
 │  5. Output               │  Write files, open PR, add labels,
 │                          │  request reviewers, include
 │                          │  provenance metadata
-└─────────────────────────┘
+└──────────────────────────┘
 ```
 
 **Context building is the key differentiator.** A generic AI call produces mediocre content. OSS Bot builds rich context by loading the target topic's full YAML, reading related topics for consistency, loading the schema to constrain output structure, and referencing existing high-quality content as style examples. This context-aware generation is what makes the output publishable, not just plausible.
