@@ -281,44 +281,44 @@ oss contribute "I teach IGCSE Math. For quadratic equations, I've found that sta
 Input (natural language, document [PDF/DOCX/PPTX/XLSX/HTML], or structured command)
     │
     ▼
-┌──────────────────────┐
-│  Document Extraction  │  (CLI: Go-native PDF | Server: Apache Tika)
-└──────────┬───────────┘
+┌─────────────────────────┐
+│  Document Extraction    │  (CLI: Go-native PDF | Server: Apache Tika)
+└──────────┬──────────────┘
            │
            ▼
-┌──────────────────────┐
-│  Context Builder      │
-│  - Load topic YAML    │
-│  - Load related topics│
+┌─────────────────────────┐
+│  Context Builder        │
+│  - Load topic YAML      │
+│  - Load related topics  │
 │  - Load existing content│
-│  - Load schema rules  │
-└──────────┬───────────┘
+│  - Load schema rules    │
+└──────────┬──────────────┘
            │
            ▼
-┌──────────────────────┐
-│  AI Generation        │
-│  - Pedagogical prompt │
-│  - Schema-aware output│
-│  - Style matching     │
-└──────────┬───────────┘
+┌─────────────────────────┐
+│  AI Generation          │
+│  - Pedagogical prompt   │
+│  - Schema-aware output  │
+│  - Style matching       │
+└──────────┬──────────────┘
            │
            ▼
-┌──────────────────────┐
-│  Validation           │
-│  - JSON Schema check  │
-│  - Bloom's taxonomy   │
-│  - Prerequisite graph │
-│  - Duplicate detection│
-└──────────┬───────────┘
+┌────────────────────────┐
+│  Validation            │
+│  - JSON Schema check   │
+│  - Bloom's taxonomy    │
+│  - Prerequisite graph  │
+│  - Duplicate detection │
+└──────────┬─────────────┘
            │
            ▼
-┌──────────────────────┐
-│  Output               │
-│  - Write YAML/MD file │
-│  - Open GitHub PR     │
-│  - Add quality labels │
-│  - Request reviewers  │
-└──────────────────────┘
+┌────────────────────────┐
+│  Output                │
+│  - Write YAML/MD file  │
+│  - Open GitHub PR      │
+│  - Add quality labels  │
+│  - Request reviewers   │
+└────────────────────────┘
 ```
 
 ### AI Provider Support
