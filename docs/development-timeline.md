@@ -1,207 +1,298 @@
-# oss-bot — Daily Development Timeline
+# oss — Daily Development Timeline
 
-> **Repository:** `p-n-ai/oss-bot`
-> **Focus:** Contribution tooling for KSSM Matematik content
-> **Duration:** 6 weeks (starts late — main build in Weeks 4-6)
-
----
-
-## Scope for oss-bot
-
-oss-bot owns **contribution tooling**: the CLI validator, AI content generation pipeline, GitHub bot (@oss-bot), and the web contribution portal (contribute.p-n-ai.org). It's the bridge between human contributors and the oss data repository.
-
-**Key insight:** oss-bot is NOT needed for Weeks 1-3. During the validation phase, content is created manually by the Education Lead + AI assistance. oss-bot ships when the system needs to scale contribution beyond the core team — that's Week 4 onward.
-
-**Build order:**
-1. CLI validator (Week 4) — validates content locally before committing
-2. AI content generation pipeline (Week 4-5) — generates teaching notes, assessments, examples from prompts
-3. GitHub bot (Week 5-6) — automates PR creation from issue comments
-4. Web portal (Week 6) — teacher-friendly contribution form
+> **Repository:** `p-n-ai/oss`
+> **Focus:** KSSM Matematik (Form 1, 2, 3) — Algebra first
+> **Duration:** 6 weeks (Day 0 → Day 30)
 
 ---
 
-## WEEKS 1-3 — NO oss-bot WORK
+## Scope for oss
 
-oss-bot repo does not exist yet. All curriculum content is created directly in the oss repo by the Education Lead using AI assistance (Claude/ChatGPT) + manual editing.
+oss owns the **curriculum data**: YAML topic files, Markdown teaching notes, assessment questions, JSON Schemas, and validation CI. No runtime code — purely content + structure.
 
-**Why wait:** Building tooling before validating the content format is premature. If the schema changes based on student feedback (it will), the tooling would need to be rewritten. Let the content stabilize first.
+**First 6 months curriculum scope (aligned to official DSKP):**
 
----
+| Form | Algebra Topics (Primary) | DSKP Chapters | Other Subjects (Backfill later) |
+|------|-------------------------|---------------|-------------------------------|
+| **Form 1** | Ungkapan Algebra, Persamaan Linear, Ketaksamaan Linear | Bab 5, 6, 7 | Nombor Nisbah, Faktor & Gandaan, Nisbah/Kadar/Kadaran, etc. |
+| **Form 2** | Pola dan Jujukan, Pemfaktoran dan Pecahan Algebra, Rumus Algebra | Bab 1, 2, 3 | Poligon, Bulatan, Koordinat, Graf Fungsi, etc. |
+| **Form 3** | Indeks, Garis Lurus | Bab 1, 9 | Bentuk Piawai, Matematik Pengguna, Trigonometri, etc. |
 
-## WEEK 4 — CLI TOOL + AI GENERATION PIPELINE
-
-### Day 16 (Mon) — Initialize Repo + CLI Scaffold
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W4D16-1` | Initialize Go 1.22 repo: `cmd/oss/main.go` (CLI), `cmd/bot/main.go` (server), `internal/{ai,generator,validator,parser,github,api}` | 🤖 |
-| `B-W4D16-2` | CLI scaffold using `cobra`: root command + `validate`, `generate`, `quality` subcommands | 🤖 |
-| `B-W4D16-3` | `internal/validator/validator.go` — load JSON Schema from oss repo, compile at startup, validate YAML files in-process (no external deps) | 🤖 |
-| `B-W4D16-4` | `oss validate [path]` command: validate all YAML in a directory tree against oss schemas. Exit code 0/1. Colored output showing pass/fail per file. | 🤖 |
-
-### Day 17 (Tue) — Validation Tools
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W4D17-1` | `internal/validator/bloom.go` — verify bloom_levels match assessment question verbs | 🤖 |
-| `B-W4D17-2` | `internal/validator/prerequisites.go` — check prerequisite graph for cycles across all KSSM forms | 🤖 |
-| `B-W4D17-3` | `internal/validator/duplicates.go` — flag >85% similar assessment questions (cosine similarity on tokenized text) | 🤖 |
-| `B-W4D17-4` | `internal/validator/quality.go` — auto-assess quality level (0-5) based on present fields | 🤖 |
-| `B-W4D17-5` | `oss quality [path]` command: print quality report for all topics | 🤖 |
-
-### Day 18 (Wed) — AI Content Generation Pipeline
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W4D18-1` | `internal/ai/` — same Provider interface as pai-bot (OpenAI, Anthropic, Ollama) | 🤖 |
-| `B-W4D18-2` | `internal/generator/context.go` — Context Builder: load target topic + parent subject + syllabus + prerequisites + siblings + schema rules. Build ~8K token context. | 🤖 |
-| `B-W4D18-3` | Create `prompts/teaching_notes.md` — template with variables: {{topic}}, {{subject}}, {{prerequisites}}, {{style_examples}}. Encodes pedagogical best practices for KSSM. | 🤖 |
-| `B-W4D18-4` | Create `prompts/assessments.md` — template for generating quiz questions with rubrics, hints, distractors, Bloom's levels, KSSM exam format | 🤖 |
-| `B-W4D18-5` | 🧑 Review and heavily edit prompt templates — these define teaching quality | 🧑 Education Lead (2hr) |
-
-### Day 19 (Thu) — Generation Commands
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W4D19-1` | `internal/generator/teaching_notes.go` — generate teaching notes for a topic: build context → inject into template → call AI → parse markdown → validate → write file | 🤖 |
-| `B-W4D19-2` | `internal/generator/assessments.go` — generate N assessment questions: build context → inject → call AI → parse YAML → validate against schema → retry if invalid → write file | 🤖 |
-| `B-W4D19-3` | `internal/generator/examples.go` — generate worked examples with step-by-step solutions | 🤖 |
-| `B-W4D19-4` | `oss generate teaching-notes --topic F2-01 --syllabus kssm-tingkatan2` — generate and write to correct path | 🤖 |
-| `B-W4D19-5` | `oss generate assessments --topic F2-01 --count 5 --difficulty medium` — generate N questions | 🤖 |
-
-### Day 20 (Fri) — Translation + Testing
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W4D20-1` | Create `prompts/translation.md` — preserve YAML structure exactly, translate only human-readable fields, use correct BM mathematical terminology | 🤖 |
-| `B-W4D20-2` | `internal/generator/translator.go` + `oss translate --topic F1-01 --to ms` — generates locale file | 🤖 |
-| `B-W4D20-3` | Test full pipeline: generate teaching notes + assessments + examples + translation for 1 Form 2 topic. Compare AI-generated vs manually-written quality. | 🤖🧑 |
-| `B-W4D20-4` | 🧑 Education Lead evaluates: is AI-generated content quality acceptable with light editing? What needs to improve in prompts? | 🧑 Education Lead |
-
-**Week 4 Output:** Working CLI with validate, generate, quality, translate commands. Prompt templates for KSSM content.
+**Note:** Topic IDs follow DSKP chapter numbering (e.g., F1-05 = Form 1 Bab 5). Algebra topics are built first (Weeks 1-3), other topics backfilled (Weeks 4-6).
 
 ---
 
-## WEEK 5 — GITHUB BOT + DOCUMENT IMPORT
+## KSSM Algebra Topic Map (DSKP-Aligned)
 
-### Day 21 (Mon) — GitHub App Setup
+Topic IDs follow DSKP chapter numbering: `F{form}-{chapter}`.
 
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W5D21-1` | `internal/github/app.go` — GitHub App authentication (JWT from private key, installation token exchange) | 🤖 |
-| `B-W5D21-2` | `internal/github/webhook.go` — webhook handler: verify HMAC signature, parse issue_comment events, extract @oss-bot commands | 🤖 |
-| `B-W5D21-3` | `internal/parser/command.go` — parse bot commands: `add teaching notes`, `add N assessments`, `translate`, `scaffold`, `quality` | 🤖 |
-| `B-W5D21-4` | 🧑 Register GitHub App: p-n-ai org, webhook URL, permissions (Issues R/W, PRs R/W, Contents R/W) | 🧑 Human |
+```
+Form 1 Algebra (3 topics — DSKP Bab 5, 6, 7)
+├── F1-05 Ungkapan Algebra (Algebraic Expressions)
+├── F1-06 Persamaan Linear (Linear Equations)
+└── F1-07 Ketaksamaan Linear (Linear Inequalities)
 
-### Day 22 (Tue) — Bot → PR Pipeline
+Form 2 Algebra (3 topics — DSKP Bab 1, 2, 3)
+├── F2-01 Pola dan Jujukan (Patterns & Sequences)
+├── F2-02 Pemfaktoran dan Pecahan Algebra (Factorisation & Algebraic Fractions)
+└── F2-03 Rumus Algebra (Algebraic Formulae)
 
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W5D22-1` | `internal/github/pr.go` — create branch, commit files, open PR with labels and description | 🤖 |
-| `B-W5D22-2` | `internal/github/contents.go` — read existing topic files from oss repo via GitHub Contents API | 🤖 |
-| `B-W5D22-3` | Bot command flow: `@oss-bot add teaching notes for F2-01` → load topic from GitHub → run generation pipeline → create branch → commit files → open PR with provenance:ai-generated label | 🤖 |
-| `B-W5D22-4` | Bot responds to issue with PR link: "I've generated teaching notes for F2-01 and opened #PR. Please review for accuracy." | 🤖 |
+Form 3 Algebra (2 topics — DSKP Bab 1, 9)
+├── F3-01 Indeks (Indices)
+└── F3-09 Garis Lurus (Straight Lines)
+```
 
-### Day 23 (Wed) — Document Import (Hybrid) + More Commands
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W5D23-1` | Create `prompts/document_import.md` — extract curriculum structure from documents (PDF, DOCX, PPTX, HTML), infer Bloom's levels from verbs, map prerequisites | 🤖 |
-| `B-W5D23-2` | `internal/parser/document.go` — `DocumentParser` interface shared by CLI and server | 🤖 |
-| `B-W5D23-3` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 |
-| `B-W5D23-4` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, XLSX, HTML) | 🤖 |
-| `B-W5D23-5` | `internal/generator/scaffolder.go` — `oss import --pdf ./kssm-spec.pdf --board malaysia --level form3` → generate full syllabus scaffold | 🤖 |
-| `B-W5D23-6` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 |
-
-### Day 24 (Thu) — Contribution Parser + Feedback API
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W5D24-1` | Create `prompts/contribution_parser.md` — parse natural language teacher input into structured YAML, preserve teacher's voice | 🤖 |
-| `B-W5D24-2` | `internal/parser/contribution.go` — teacher writes "My students always confuse the negative sign when expanding brackets" → structured misconception entry | 🤖 |
-| `B-W5D24-3` | `POST /api/feedback` — endpoint for pai-bot to submit observed patterns (misconception frequency, explanation effectiveness) | 🤖 |
-| `B-W5D24-4` | Feedback handler: receive structured feedback → run generation pipeline → create PR with provenance:ai-observed label | 🤖 |
-
-### Day 25 (Fri) — Docker + Testing
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W5D25-1` | Dockerfile: multi-stage Go build for both CLI binary and bot server | 🤖 |
-| `B-W5D25-2` | `docker-compose.yml`: bot server + Apache Tika sidecar + webhook tunnel (for dev) | 🤖 |
-| `B-W5D25-3` | README.md: CLI installation (go install + pre-built binaries), GitHub App setup, bot deployment | 🤖 |
-| `B-W5D25-4` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 |
-| `B-W5D25-5` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead |
-
-**Week 5 Output:** Working GitHub bot that generates content and opens PRs. CLI with validate/generate/translate/import (PDF). Server with multi-format document import via Apache Tika (PDF, DOCX, PPTX, XLSX, HTML). Feedback API for pai-bot.
+**Total Algebra topics: 8** — the primary validation set.
 
 ---
 
-## WEEK 6 — WEB PORTAL + LAUNCH
+## DAY 0 — SETUP ✅
 
-### Day 26 (Mon) — Web Portal Scaffold
+| Task ID | Task | Owner | Time | Status |
+|---------|------|-------|------|--------|
+| `O-D0-1` | Initialize repo: `curricula/`, `schema/`, `concepts/`, `taxonomy/`, `scripts/`, `.github/workflows/` | 🤖 Claude Code | 30min | ✅ Done |
+| `O-D0-2` | Create 4 schemas: `topic`, `assessments`, `syllabus`, `subject` (JSON Schema Draft 2020-12). Remaining schemas (`examples`, `concept`, `taxonomy`) are created as their content types are first introduced. | 🤖 Claude Code | 1hr | ✅ Done |
+| `O-D0-3` | Create `curricula/malaysia/kssm/matematik-tingkatan1/syllabus.yaml` with board metadata | 🤖 Claude Code | 30min | ✅ Done |
+| `O-D0-4` | 🧑 Choose first 5 Algebra topics against official DSKP (Form 1: 3 topics + Form 2: 2 topics) | 🧑 Education Lead | 30min | ✅ Done |
 
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W6D26-1` | Scaffold `web/`: Next.js 14 + TypeScript + shadcn/ui + Tailwind | 🤖 |
-| `B-W6D26-2` | Contribution form: Select form (F1/F2/F3) → Select topic → Contribution type (teaching notes/example/assessment/correction/translation) → Content textarea | 🤖 |
-| `B-W6D26-3` | `POST /api/preview` — AI structures the natural language input into proper YAML/markdown, returns preview | 🤖 |
-
-### Day 27 (Tue) — Submit + Preview Flow
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W6D27-1` | Preview component: show structured output with syntax highlighting, diff against existing content | 🤖 |
-| `B-W6D27-2` | `POST /api/submit` — on confirmation, create GitHub PR with attribution to the contributor | 🤖 |
-| `B-W6D27-3` | Real-time schema validation in preview: show green checkmarks for valid fields, red for issues | 🤖 |
-
-### Day 28 (Wed) — Curricula Browser
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W6D28-1` | `GET /api/curricula` — list all syllabi, subjects, topics from the oss repo | 🤖 |
-| `B-W6D28-2` | Browse page: tree view of KSSM → Form 1/2/3 → Subject → Topic. Quality level badges. "Contribute" button per topic. | 🤖 |
-| `B-W6D28-3` | Topic detail page: show existing content (teaching notes, examples, assessments) with "Improve this" buttons | 🤖 |
-
-### Day 29 (Thu) — Deploy + Documentation
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W6D29-1` | Deploy bot + web portal: Docker on VPS, configure GitHub App webhook URL | 🤖 |
-| `B-W6D29-2` | CONTRIBUTING.md: 3 ways to contribute (web form, @oss-bot, CLI), screenshot walkthrough | 🤖 |
-| `B-W6D29-3` | 🧑 Test web portal with 2 teachers: can they contribute without knowing Git? | 🧑 Education Lead |
-
-### Day 30 (Fri) — Launch + Report
-
-| Task ID | Task | Owner |
-|---------|------|-------|
-| `B-W6D30-1` | 🧑 Announce web portal in launch materials: "contribute.p-n-ai.org — teachers can contribute without Git" | 🧑 Human |
-| `B-W6D30-2` | 🧑 Write oss-bot section of 6-week report: AI generation quality, bot PRs created, web portal usage | 🧑 Human |
-
-**Week 6 Output:** Web portal live at contribute.p-n-ai.org. GitHub bot responding to @oss-bot. CLI distributed as pre-built binary.
+**Exit:** Repo exists with schema files and syllabus structure for KSSM Matematik Form 1. ✅ **Completed**
 
 ---
 
-## Task Count Summary
+## WEEK 1 — FORM 1 ALGEBRA CONTENT
 
-| Week | 🤖 Claude Code | 🧑 Human | Total |
-|------|----------------|----------|-------|
-| 1-3 | 0 | 0 | 0 (no oss-bot work) |
-| 4 | 16 | 2 | 18 |
-| 5 | 16 | 2 | 18 |
-| 6 | 10 | 2 | 12 |
-| **Total** | **42** | **6** | **48** |
+### Day 1 (Mon) — Form 1 Algebra Topics (3 topics)
+
+| Task ID | Task | Owner | Time | Status |
+|---------|------|-------|------|--------|
+| `O-W1D1-1` | Create `curricula/malaysia/kssm/matematik-tingkatan1/subjects/algebra.yaml` — subject metadata | 🤖 | 15min | ✅ Done |
+| `O-W1D1-2` | Create topic YAML stubs for F1-05, F1-06, F1-07: id, name, prerequisites, learning_objectives, difficulty, bloom_levels | 🤖 | 30min | ✅ Done |
+| `O-W1D1-3` | 🧑 Write F1-05 teaching notes (`05-ungkapan-algebra.teaching.md`) — real teacher quality, conversational, KSSM-aligned | 🧑 Education Lead | 2hr | ✅ Done |
+| `O-W1D1-4` | 🧑🤖 AI-draft teaching notes for F1-06 and F1-07, Education Lead reviews and edits | Collaborative | 2hr | ✅ Done |
+
+### Day 2 (Tue) — Assessments for Form 1 Algebra
+
+| Task ID | Task | Owner | Time | Status |
+|---------|------|-------|------|--------|
+| `O-W1D2-1` | 🧑 Write 10 assessment questions for F1-05 (Ungkapan Algebra): answers, rubrics, hints, difficulty spread | 🧑 Education Lead | 2hr | ✅ Done |
+| `O-W1D2-2` | 🤖 AI-generate assessments for F1-06 (15 questions), Education Lead reviews and expands | Collaborative | 2hr | ✅ Done |
+| `O-W1D2-3` | 🤖 AI-generate assessments for F1-07 (10 questions), Education Lead reviews | Collaborative | 2hr | ✅ Done |
+| `O-W1D2-4` | Create `.yamllint.yml` with formatting rules | 🤖 | 15min | ✅ Done |
+
+### Day 3 (Wed) — Validation Pipeline
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W1D3-1` | GitHub Actions workflow `validate.yml`: yamllint + ajv-cli validation of all YAML against schemas | 🤖 |
+| `O-W1D3-2` | `scripts/validate.sh` — run all schema validations locally | 🤖 |
+| `O-W1D3-3` | Validate all existing content passes CI | 🤖 |
+
+### Day 4 (Thu) — Form 2 Algebra Begins (3 topics)
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W1D4-1` | Create `curricula/malaysia/kssm/matematik-tingkatan2/syllabus.yaml` + `subjects/algebra.yaml` | 🤖 |
+| `O-W1D4-2` | Create topic YAML stubs for F2-01, F2-02, F2-03 with prerequisites linking to Form 1 | 🤖 |
+| `O-W1D4-3` | 🧑 Write F2-02 teaching notes (Pemfaktoran dan Pecahan Algebra) — key topic, highest misconception rate | 🧑 Education Lead (2hr) |
+| `O-W1D4-4` | 🧑🤖 AI-draft teaching notes for F2-01 and F2-03 | Collaborative |
+
+### Day 5 (Fri) — Quality Check
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W1D5-1` | 🧑 Review all Week 1 content for KSSM accuracy: correct terminology (BM & English), correct scope per form | 🧑 Education Lead (2hr) |
+| `O-W1D5-2` | Fix any schema validation failures | 🤖 |
+
+**Week 1 Output:** 6 topic YAMLs (F1: 3, F2: 3), 6 teaching notes, 15+ assessment questions. All pass CI.
 
 ---
 
-## Performance Targets
+## WEEK 2 — FORM 2 & 3 ALGEBRA + ASSESSMENTS
 
-| Operation | Target |
-|-----------|--------|
-| `oss validate` (full repo) | <2s |
-| Teaching notes generation | <15s |
-| Assessment generation (5 questions) | <10s |
-| PDF import, CLI (50-page syllabus) | <60s |
-| Document import, server (50-page, any format) | <90s |
-| Bot webhook → PR created | <30s |
-| Web portal preview | <5s |
-| CLI startup | <100ms |
+### Day 6 (Mon) — Form 2 Assessments
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W2D6-1` | 🧑 Write assessments for F2-01, F2-02, F2-03 (5 questions each, Algebra focus) | 🧑 Education Lead (3hr) |
+| `O-W2D6-2` | 🧑🤖 AI-draft additional assessment questions for all F2 topics | Collaborative |
+
+### Day 7 (Tue) — Form 3 Algebra Structure
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W2D7-1` | Create `curricula/malaysia/kssm/matematik-tingkatan3/syllabus.yaml` + `subjects/algebra.yaml` | 🤖 |
+| `O-W2D7-2` | Create topic YAML stubs for F3-01 and F3-09 with prerequisites linking to Form 2 | 🤖 |
+| `O-W2D7-3` | 🧑 Write F3-01 teaching notes (Indeks — Indices) | 🧑 Education Lead (2hr) |
+| `O-W2D7-4` | 🧑🤖 AI-draft teaching notes for F3-09 (Garis Lurus) | Collaborative |
+
+### Day 8 (Wed) — Form 3 Assessments
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W2D8-1` | 🧑 Write assessments for F3-01 and F3-09 (5 questions each) | 🧑 Education Lead (2hr) |
+| `O-W2D8-2` | 🧑🤖 AI-draft additional assessment questions for F3 topics | Collaborative |
+
+### Day 9 (Thu) — Cross-Form Prerequisites + Concepts
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W2D9-1` | `scripts/check-prerequisites.py` — detect cycles in prerequisite graph across all 3 forms | 🤖 |
+| `O-W2D9-2` | `scripts/check-references.py` — verify all topic_id and syllabus_id references are valid | 🤖 |
+| `O-W2D9-3` | Create `concepts/mathematics/linear-equation.yaml` bridging F1→F2→F3 linear equations | 🤖 |
+| `O-W2D9-4` | Create `concepts/mathematics/algebraic-expression.yaml` bridging expansion/factorisation across forms | 🤖 |
+| `O-W2D9-5` | 🧑 Verify prerequisite chain: can a Form 1 student's mastery correctly unlock Form 2 topics? | 🧑 Education Lead |
+
+### Day 10 (Fri) — Quality Audit
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W2D10-1` | `scripts/assess-quality.py` — auto-assess quality levels for all topics | 🤖 |
+| `O-W2D10-2` | Add quality report to CI (runs on merge to main) | 🤖 |
+| `O-W2D10-3` | 🧑 Full quality audit: are all 8 Algebra topics at Level 3 (Teachable)? Fix any that aren't. | 🧑 Education Lead |
+
+**Week 2 Output:** All 8 Algebra topics complete (F1:3 + F2:3 + F3:2). 40+ assessment questions. Prerequisite chain validated across 3 forms. Quality Level ≥3 for all topics.
+
+---
+
+## WEEK 3 — WORKED EXAMPLES + MALAY TRANSLATIONS
+
+### Day 11 (Mon) — Examples Schema + Form 1 Examples
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W3D11-1` | Create `schema/examples.schema.json` | 🤖 |
+| `O-W3D11-2` | 🧑🤖 Create worked examples for F1-05, F1-06, F1-07 (3 examples each, progressive difficulty) | Collaborative (3hr) |
+
+### Day 12 (Tue) — Form 2 & 3 Examples
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W3D12-1` | 🧑🤖 Create worked examples for F2-01, F2-02, F2-03 | Collaborative (3hr) |
+| `O-W3D12-2` | 🧑🤖 Create worked examples for F3-01 and F3-09 | Collaborative (2hr) |
+
+### Day 13 (Wed) — Malay Translation Structure
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W3D13-1` | Create `locales/ms/` directory structure mirroring all 3 forms | 🤖 |
+| `O-W3D13-2` | 🧑🤖 Translate Form 1 topic names, learning objectives, misconceptions to Bahasa Melayu | Collaborative |
+| `O-W3D13-3` | 🧑🤖 Translate Form 1 teaching notes to BM (since KSSM students learn in Malay) | Collaborative |
+
+### Day 14 (Thu) — Form 2 & 3 Translations
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W3D14-1` | 🧑🤖 Translate Form 2 topics + teaching notes to BM | Collaborative |
+| `O-W3D14-2` | 🧑🤖 Translate Form 3 topics + teaching notes to BM | Collaborative |
+| `O-W3D14-3` | 🧑 Native speaker review of all BM translations — correct mathematical terminology | 🧑 Education Lead |
+
+### Day 15 (Fri) — Taxonomy + Documentation
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W3D15-1` | Create `taxonomy/mathematics/algebra.yaml` — classification tree for KSSM algebra | 🤖 |
+| `O-W3D15-2` | Write CONTRIBUTING.md: 3 contribution paths (teacher, developer, AI), YAML format guide with examples | 🤖 |
+| `O-W3D15-3` | Write comprehensive README.md: what it is, structure, how to consume, how to contribute | 🤖 |
+
+**Week 3 Output:** 24 worked examples. Malay translations for all 8 Algebra topics. Taxonomy defined. Docs complete.
+
+---
+
+## WEEK 4 — NON-ALGEBRA TOPIC STUBS + QUALITY
+
+### Day 16-17 (Mon-Tue) — Form 1 Non-Algebra Topics
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W4D16-1` | Create non-algebra subjects for Form 1: `numbers.yaml`, `measurement.yaml`, `statistics.yaml` | 🤖 |
+| `O-W4D16-2` | Create Level 0-1 topic stubs for Form 1 non-algebra (8-10 topics): id, name, LOs, prerequisites, difficulty | 🤖 |
+| `O-W4D16-3` | 🧑🤖 Elevate 3 high-priority Form 1 non-algebra topics to Level 2 (add misconceptions, teaching sequence) | Collaborative |
+
+### Day 18 (Wed) — Form 2 & 3 Non-Algebra Topics
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W4D18-1` | Create Level 0-1 stubs for Form 2 non-algebra (8-10 topics) | 🤖 |
+| `O-W4D18-2` | Create Level 0-1 stubs for Form 3 non-algebra (8-10 topics) | 🤖 |
+| `O-W4D18-3` | 🧑 Verify all prerequisite links across Algebra and non-Algebra topics are correct | 🧑 Education Lead |
+
+### Day 19-20 (Thu-Fri) — More Assessments + Quality
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W4D19-1` | 🧑 Add 5 MORE assessment questions per Algebra topic (bringing total to 10/topic = 80 total) | 🧑 Education Lead |
+| `O-W4D19-2` | 🧑 Add harder "exam-style" questions for Form 3 topics (PT3 exam format) | 🧑 Education Lead |
+| `O-W4D20-1` | Run full quality report: how many topics at each level? | 🤖 |
+| `O-W4D20-2` | 🧑 Ensure ALL 8 Algebra topics are at Quality Level 3+ (Teachable) | 🧑 Education Lead |
+
+**Week 4 Output:** ~25 non-algebra topic stubs. 80+ algebra assessment questions. Full quality report.
+
+---
+
+## WEEK 5 — OPEN SOURCE PREP
+
+### Day 21-22 (Mon-Tue) — Documentation + Cleanup
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W5D21-1` | Create "good first issues" for community: add teaching notes for stub topics, translate to Chinese, improve an assessment | 🤖 |
+| `O-W5D21-2` | Create CODEOWNERS: Education Lead auto-assigned on all content PRs | 🤖 |
+| `O-W5D21-3` | Create issue templates: new-topic, improve-content, translation, bug-report | 🤖 |
+| `O-W5D22-1` | `scripts/export-sqlite.py` — generate SQLite export of all curriculum data for offline apps | 🤖 |
+| `O-W5D22-2` | Add SQLite export to release workflow: tagged release generates downloadable oss.sqlite | 🤖 |
+
+### Day 23 (Wed) — Final Validation
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W5D23-1` | Run full CI: all YAML validates, no prerequisite cycles, all references valid, quality report clean | 🤖 |
+| `O-W5D23-2` | 🧑 Final read-through of every teaching note and assessment for KSSM accuracy | 🧑 Education Lead |
+
+### Day 24-25 (Thu-Fri) — Pre-Launch
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W5D24-1` | Tag v0.1.0: first public release (8 Algebra topics at Level 3+, 25+ non-algebra stubs) | 🤖 |
+| `O-W5D25-1` | 🧑 Prepare curriculum section of launch blog: "Open School Syllabus — covering KSSM F1-F3 Matematik" | 🧑 Human |
+
+**Week 5 Output:** Repo public-ready. v0.1.0 tagged. 10+ good first issues. SQLite export available.
+
+---
+
+## WEEK 6 — LAUNCH + COMMUNITY
+
+### Day 26 (Mon) — LAUNCH DAY
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W6D26-1` | 🧑 Publish repo publicly. Announce alongside pai-bot. | 🧑 Human |
+| `O-W6D26-2` | 🧑 Post in Malaysian teacher communities: Telegram groups, Facebook groups for Guru Matematik | 🧑 Human |
+
+### Day 27-28 (Tue-Wed) — Community Response
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W6D27-1` | 🧑 Respond to every issue and PR within 24 hours | 🧑 Team |
+| `O-W6D28-1` | 🧑 Based on feedback, identify most-requested additional content (Chinese/Tamil translations? Science?) | 🧑 Human |
+
+### Day 29-30 (Thu-Fri) — First Community Contributions
+
+| Task ID | Task | Owner |
+|---------|------|-------|
+| `O-W6D29-1` | 🧑 Review and merge first community PRs. Be generous with praise. | 🧑 Education Lead |
+| `O-W6D30-1` | 🧑 Write curriculum section of 6-week report: coverage stats, quality levels, community contributions | 🧑 Human |
+
+**Week 6 Output:** Public repo with community engagement. First external contributions. 5+ external contributors.
+
+---
+
+## Content Delivery Summary
+
+| Milestone | Algebra Topics | Non-Algebra Topics | Assessment Qs | Teaching Notes | Translations |
+|-----------|---------------|--------------------|--------------|--------------|-|
+| End Week 1 | 6 (F1:3, F2:3) | 0 | 15+ | 6 (BM & EN) | 0 |
+| End Week 2 | 8 (all) | 0 | 40+ | 8 (all) | 0 |
+| End Week 3 | 8 | 0 | 40+ | 8 | 8 (Malay) |
+| End Week 4 | 8 | ~25 stubs | 80+ | 8+ | 8 |
+| End Week 5 | 8 | ~25 | 80+ | 8+ | 8 |
+| End Week 6 | 8 | ~25+ | 80+ | 8+ | 8+ |
