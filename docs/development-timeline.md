@@ -34,10 +34,10 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W4D16-1` | Initialize Go 1.22 repo: `cmd/oss/main.go` (CLI), `cmd/bot/main.go` (server), `internal/{ai,generator,validator,parser,github,api}` | 🤖 | ⬜ | |
-| `B-W4D16-2` | CLI scaffold using `cobra`: root command + `validate`, `generate`, `quality` subcommands | 🤖 | ⬜ | |
-| `B-W4D16-3` | `internal/validator/validator.go` — load JSON Schema from oss repo, compile at startup, validate YAML files in-process (no external deps) | 🤖 | ⬜ | |
-| `B-W4D16-4` | `oss validate [path]` command: validate all YAML in a directory tree against oss schemas. Exit code 0/1. Colored output showing pass/fail per file. | 🤖 | ⬜ | |
+| `B-W4D16-1` | Initialize Go 1.22 repo: `cmd/oss/main.go` (CLI), `cmd/bot/main.go` (server), `internal/{ai,generator,validator,parser,github,api}` | 🤖 | ✅ | Go 1.26 used; also created pipeline/ and output/ dirs |
+| `B-W4D16-2` | CLI scaffold using `cobra`: root command + `validate`, `generate`, `quality` subcommands | 🤖 | ✅ | + translate subcommand |
+| `B-W4D16-3` | `internal/validator/validator.go` — load JSON Schema from oss repo, compile at startup, validate YAML files in-process (no external deps) | 🤖 | ✅ | TDD: 5 tests passing |
+| `B-W4D16-4` | `oss validate [path]` command: validate all YAML in a directory tree against oss schemas. Exit code 0/1. Colored output showing pass/fail per file. | 🤖 | ✅ | + Makefile, .env.example, CI workflow |
 
 ### Day 17 (Tue) — Validation Tools
 
