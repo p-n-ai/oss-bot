@@ -4690,6 +4690,7 @@ All extractors share the `ContentExtractor` interface, allowing the import pipel
 | 23.7 | `B-W5D23-7` | Scaffolder (any source → syllabus structure) | 🤖 | `internal/generator/scaffolder.go` |
 | 23.8 | `B-W5D23-8` | `@oss-bot quality` command implementation | 🤖 | Update bot handlers |
 | 23.9 | `B-W5D23-9` | `oss scaffold syllabus` and `oss scaffold subject` CLI commands | 🤖 | Update `cmd/oss/main.go` |
+| 23.11 | `B-W5D23-11` | Fix pipeline file map — populate `GenerationResult.Files` after generation | 🤖 | Update `internal/pipeline/pipeline.go` |
 | 23.10 | `B-W5D23-10` | Bulk import prompt template | 🤖 | `prompts/bulk_import.md` |
 
 #### 23.1 — Content Import Prompt Template
@@ -5489,6 +5490,95 @@ topics:
     assessments: []       # if present in source
 ```
 
+#### 23.11 — Fix Pipeline File Map (TDD)
+
+**Context:** Discovered in Day 22. Every generator (`GenerateTeachingNotes`, `GenerateAssessments`, `GenerateExamples`) only populates `GenerationResult.Content` — `GenerationResult.Files` is always `nil`. This means `ModeWriteFS` writes nothing to disk and `ModeCreatePR` commits no files. Must be fixed before any file-write or PR-creation path is exercised.
+
+**Root cause:** Generators are AI thin wrappers — they correctly return a content string. The pipeline is responsible for knowing where that content belongs on disk (repo-relative path).
+
+**Fix:** After the `generate()` call in `pipeline.Execute()`, construct the `Files` map if it is empty. The repo-relative path is derived from `genCtx.TopicDir`, `p.repoPath`, and the topic's file reference fields (`ai_teaching_notes`, `assessments_file`, `examples_file`).
+
+**File:** Add to `internal/pipeline/pipeline.go`
+
+```go
+// buildFilesMap constructs the repo-relative file path → content map for
+// generated content. Uses the topic's file reference fields and TopicDir.
+// Returns nil if the topic has no file reference configured for contribType.
+func buildFilesMap(genCtx *generator.GenerationContext, contribType, content, repoPath string) map[string]string {
+    var fileName string
+    switch contribType {
+    case "teaching_notes":
+        fileName = genCtx.Topic.TeachingNotesFile
+    case "assessments":
+        fileName = genCtx.Topic.AssessmentsFile
+    case "examples":
+        fileName = genCtx.Topic.ExamplesFile
+    }
+    if fileName == "" {
+        return nil
+    }
+
+    // Construct a repo-relative path, e.g.:
+    //   curricula/kssm/topics/algebra/F1-01.teaching.md
+    filePath := fileName
+    if repoPath != "" && genCtx.TopicDir != "" {
+        if relDir, err := filepath.Rel(repoPath, genCtx.TopicDir); err == nil {
+            filePath = filepath.Join(relDir, fileName)
+        }
+    }
+
+    return map[string]string{filePath: content}
+}
+```
+
+Call it in `Execute()` immediately after `generate()`:
+
+```go
+generated, err := p.generate(ctx, genCtx, req)
+if err != nil {
+    return nil, fmt.Errorf("generating content: %w", err)
+}
+
+// Populate Files map if the generator did not set it.
+if len(generated.Files) == 0 && generated.Content != "" {
+    generated.Files = buildFilesMap(genCtx, req.ContributionType, generated.Content, p.repoPath)
+}
+```
+
+**Test:** Add to `internal/pipeline/pipeline_test.go`
+
+```go
+func TestPipeline_FilesMapPopulated(t *testing.T) {
+    repoDir := setupPipelineTestRepoWithNotes(t) // topic has ai_teaching_notes set
+    mock := ai.NewMockProvider("# Teaching Notes\n\nGenerated content.")
+
+    p := pipeline.New(mock, &output.LocalWriter{}, "prompts/", repoDir)
+
+    result, err := p.Execute(context.Background(), pipeline.Request{
+        TopicPath:        "F1-01",
+        ContributionType: "teaching_notes",
+        Mode:             pipeline.ModePreview,
+        Source:           "cli",
+    })
+    if err != nil {
+        t.Fatalf("Execute() error = %v", err)
+    }
+    if len(result.Files) == 0 {
+        t.Error("Files map should be populated after generation when topic has ai_teaching_notes set")
+    }
+    for path, content := range result.Files {
+        if path == "" {
+            t.Error("file path must not be empty")
+        }
+        if content == "" {
+            t.Error("file content must not be empty")
+        }
+    }
+}
+```
+
+> **Note:** `setupPipelineTestRepoWithNotes` already sets `ai_teaching_notes: F1-01.teaching.md` on the test topic — no additional fixture changes needed.
+
 #### Day 23 Validation
 
 ```bash
@@ -5507,6 +5597,7 @@ go test ./...
 - [ ] `oss scaffold syllabus` and `oss scaffold subject` CLI commands wired and functional
 - [ ] `prompts/bulk_import.md` created (uses `{{syllabus_id}}` template variable, curriculum-agnostic)
 - [ ] `@oss-bot quality` responds with quality report as issue comment
+- [ ] Pipeline `Files` map populated after generation (`B-W5D23-11`) — `ModeWriteFS` writes files, `ModeCreatePR` commits files
 - [ ] `go test ./...` passes
 
 **Progress:** CLI + Bot + content import (URL, upload with OCR + AI Vision, text) + scaffolder + scaffold commands | 5 packages | 6 prompt templates

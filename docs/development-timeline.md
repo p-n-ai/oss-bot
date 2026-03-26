@@ -110,6 +110,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 ### Day 23 (Wed) — Scaffolding + Document Import (PDF, URL, Tika)
 
 > **Updated (2026-03-27):** Expanded scaffolder to handle new syllabus/subject creation from scratch. Added large document chunking. These are required for the global OSS use case (any country, any subject).
+> **Updated (2026-03-27, Day 22 finding):** Added task `B-W5D23-11` to fix `GenerationResult.Files` always being `nil`. Without this, both `ModeWriteFS` and `ModeCreatePR` write/commit nothing. Must be completed before any file-write task in this day.
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
@@ -120,6 +121,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D23-5` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 | ⬜ | |
 | `B-W5D23-6` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT) | 🤖 | ⬜ | |
 | `B-W5D23-7` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content, pass to AI pipeline | 🤖 | ⬜ | |
+| `B-W5D23-11` | Fix pipeline file map: populate `GenerationResult.Files` after generation using `genCtx.TopicDir` + topic file fields (`ai_teaching_notes`, `assessments_file`, `examples_file`). Fixes `ModeWriteFS` writing nothing and `ModeCreatePR` committing nothing. Add `buildFilesMap()` to `internal/pipeline/pipeline.go`. | 🤖 | ⬜ | Gap from Day 22: Files map always nil |
 
 ### Day 24 (Thu) — Bulk Import + Large Document Processing
 
