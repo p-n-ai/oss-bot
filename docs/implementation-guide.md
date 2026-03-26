@@ -55,6 +55,10 @@ golangci-lint --version   # Expected: ≥1.55
 
 # Docker + Docker Compose (deployment)
 docker --version && docker compose version
+
+# Reasoning model API key (for bulk import, optional)
+# Supported: Kimi K2.5, Qwen 3.5, OpenAI o3-mini
+# Set via OSS_REASONING_API_KEY and OSS_REASONING_PROVIDER
 ```
 
 ### Verify Setup
@@ -4335,6 +4339,8 @@ go test -v ./internal/parser/...
 | 22.2 | `B-W5D22-2` | GitHub Contents API (read files from repo) | 🤖 | `internal/github/contents.go` |
 | 22.3 | `B-W5D22-3` | Bot command flow: parse command → call shared pipeline (ModeCreatePR) → react with PR link | 🤖 | Wiring in `cmd/bot/main.go` |
 | 22.4 | `B-W5D22-4` | Bot responds to issue with PR link | 🤖 | Part of PR flow |
+| 22.5 | `B-W5D22-5` | Content merge strategies (assessments, examples, teaching notes) | 🤖 | `internal/generator/merge.go` |
+| 22.6 | `B-W5D22-6` | Pipeline merge stage integration + MergeReport | 🤖 | Update `internal/pipeline/pipeline.go` |
 
 > **Architecture note:** The bot reuses the same `pipeline.Execute()` from Day 19. It creates a `GitHubWriter` (instead of `LocalWriter`) and calls `pipeline.Execute(ctx, Request{Mode: ModeCreatePR, Source: "bot"})`. No generation logic is reimplemented — only the webhook-to-command parsing and GitHub reaction posting are bot-specific.
 
@@ -4576,6 +4582,44 @@ func handleScaffold(cmd gh.BotCommand) error {
 }
 ```
 
+#### 22.5 — Content Merge Strategies (TDD)
+
+**File:** `internal/generator/merge.go`
+
+When generating content for topics that already have existing data, the pipeline must merge new content with existing content rather than overwriting.
+
+Three merge strategies:
+
+| Content Type | Strategy | Behavior |
+|-------------|----------|----------|
+| Assessments | Append + dedup | Add new questions, skip duplicates by matching question text (fuzzy) |
+| Examples | Append + dedup + re-sort | Add new examples, skip duplicates, re-sort by difficulty/complexity |
+| Teaching Notes | Additive | Merge sections additively — never remove existing notes, append new sections |
+
+```go
+// MergeReport tracks what changed during a merge for PR descriptions.
+type MergeReport struct {
+    Added   int      // Number of new items added
+    Skipped int      // Number of duplicates skipped
+    Sections []string // Which sections were modified
+}
+
+// MergeAssessments appends new assessments to existing, deduplicating by question text.
+func MergeAssessments(existing, generated []Assessment) ([]Assessment, MergeReport) { ... }
+
+// MergeExamples appends new examples, deduplicates, and re-sorts by difficulty.
+func MergeExamples(existing, generated []Example) ([]Example, MergeReport) { ... }
+
+// MergeTeachingNotes additively merges teaching note sections.
+func MergeTeachingNotes(existing, generated TeachingNotes) (TeachingNotes, MergeReport) { ... }
+```
+
+The `MergeReport` struct is used by the pipeline to build informative PR descriptions showing exactly what was added vs. skipped.
+
+#### 22.6 — Pipeline Merge Stage Integration
+
+Update `internal/pipeline/pipeline.go` to call the appropriate merge function when existing content is detected. The pipeline reads current content via the `ContentsClient` (GitHub API or filesystem), then merges before writing output.
+
 #### Day 22 Validation
 
 ```bash
@@ -4597,9 +4641,12 @@ kill %1
 - [ ] `internal/github/contents.go` + tests — read files from GitHub API
 - [ ] `cmd/bot/main.go` — working HTTP server with webhook route and health check
 - [ ] Bot command flow: webhook → parse → route to handler
+- [ ] `internal/generator/merge.go` + tests — MergeAssessments (append + dedup), MergeExamples (append + dedup + re-sort), MergeTeachingNotes (additive)
+- [ ] Pipeline merge stage integration — merges with existing content when present
+- [ ] MergeReport struct populates PR descriptions with added/skipped counts
 - [ ] `go test ./...` passes with zero failures
 
-**Progress:** CLI + Bot server + GitHub integration | 5 packages
+**Progress:** CLI + Bot server + GitHub integration + content merge | 5 packages
 
 ---
 
@@ -4642,10 +4689,14 @@ All extractors share the `ContentExtractor` interface, allowing the import pipel
 | 23.6 | `B-W5D23-6` | Image extraction (OCR + AI Vision) | 🤖 | `internal/parser/image.go` |
 | 23.7 | `B-W5D23-7` | Scaffolder (any source → syllabus structure) | 🤖 | `internal/generator/scaffolder.go` |
 | 23.8 | `B-W5D23-8` | `@oss-bot quality` command implementation | 🤖 | Update bot handlers |
+| 23.9 | `B-W5D23-9` | `oss scaffold syllabus` and `oss scaffold subject` CLI commands | 🤖 | Update `cmd/oss/main.go` |
+| 23.10 | `B-W5D23-10` | Bulk import prompt template | 🤖 | `prompts/bulk_import.md` |
 
 #### 23.1 — Content Import Prompt Template
 
 **File:** `prompts/document_import.md`
+
+> **Curriculum-agnostic:** All prompt templates must use `{{syllabus_id}}` template variables and not hardcode any specific curriculum (e.g., KSSM, BM). The syllabus ID is passed at runtime.
 
 ```markdown
 # Content Import Prompt
@@ -4654,6 +4705,7 @@ You are an expert at extracting curriculum structure from educational sources.
 
 ## Context
 
+**Syllabus:** {{syllabus_id}}
 **Source content (pre-extracted text):**
 {{document_text}}
 
@@ -5369,6 +5421,74 @@ func (p *ImageExtractor) isImageType(mimeType string) bool {
 
 The scaffolder takes extracted content (from any source — URL, file, or text) and generates a complete syllabus directory structure with Level 0-1 topic stubs.
 
+> **Important:** The scaffolder must handle creating entirely new curricula from scratch (not just importing into existing ones). This means it must be able to generate the top-level `syllabus.yaml`, subject directories, and all topic stubs from a single source document or URL, without requiring any pre-existing OSS repo content.
+
+#### 23.9 — Scaffold CLI Commands
+
+Add `oss scaffold syllabus` and `oss scaffold subject` subcommands:
+
+```bash
+# Create an entirely new syllabus from a curriculum specification document
+oss scaffold syllabus --from-url https://example.gov/curriculum-spec.pdf --id my-syllabus
+oss scaffold syllabus --from-file curriculum.pdf --id my-syllabus
+
+# Create a new subject within an existing syllabus
+oss scaffold subject --syllabus my-syllabus --from-file math-spec.docx --id mathematics
+```
+
+Both commands delegate to the scaffolder (`internal/generator/scaffolder.go`) and output the generated directory tree to the filesystem. The `--id` flag sets the `syllabus_id` used in template variables.
+
+#### 23.10 — Bulk Import Prompt Template
+
+**File:** `prompts/bulk_import.md`
+
+The bulk import prompt is used when importing large documents that contain multiple topics. It guides the AI to extract and structure many topics at once.
+
+> **Curriculum-agnostic:** This template (like `document_import.md` and `contribution_parser.md`) must use `{{syllabus_id}}` template variables and not hardcode any specific curriculum (e.g., KSSM, BM). The syllabus ID is passed at runtime.
+
+```markdown
+# Bulk Import Prompt
+
+You are extracting curriculum structure from a large educational document.
+
+## Context
+
+**Syllabus:** {{syllabus_id}}
+**Source content (chunk {{chunk_index}} of {{total_chunks}}):**
+{{document_chunk}}
+
+**Source type:** {{source_type}}
+**Previously extracted topics (for continuity):**
+{{previous_topics}}
+
+## Instructions
+
+Extract all curriculum topics from this chunk. For each topic:
+1. Assign a unique ID following the pattern used in {{syllabus_id}}
+2. Extract the topic name in the source language
+3. Identify learning objectives with Bloom's taxonomy levels
+4. Determine difficulty (beginner/intermediate/advanced)
+5. Identify prerequisites (referencing topic IDs from this or previous chunks)
+6. Extract any teaching notes, examples, or assessment items present
+
+Maintain consistency with topics extracted from previous chunks.
+
+## Output Format (YAML)
+
+topics:
+  - id: XX-NN
+    name: "Topic Name"
+    difficulty: beginner
+    learning_objectives:
+      - id: LO1
+        text: "..."
+        bloom: understand
+    prerequisites: []
+    teaching_notes: "..." # if present in source
+    examples: []          # if present in source
+    assessments: []       # if present in source
+```
+
 #### Day 23 Validation
 
 ```bash
@@ -5377,17 +5497,19 @@ go test ./...
 
 #### Day 23 Exit Criteria
 
-- [ ] `prompts/document_import.md` created (supports URL, file, and text sources)
+- [ ] `prompts/document_import.md` created (supports URL, file, and text sources; uses `{{syllabus_id}}` not hardcoded curricula)
 - [ ] `internal/parser/document.go` — `ContentExtractor` interface + `InputSource` struct
 - [ ] `internal/parser/pdf.go` + tests — Go-native PDF extraction (CLI)
 - [ ] `internal/parser/tika.go` + tests — Apache Tika multi-format extraction including images (server)
 - [ ] `internal/parser/url.go` + tests — URL fetcher with HTML text extraction
 - [ ] `internal/parser/image.go` + tests — Dual image extraction: OCR for printed text, AI Vision for handwriting/diagrams (with auto-detection)
-- [ ] `internal/generator/scaffolder.go` + tests — generates syllabus structure from any source
+- [ ] `internal/generator/scaffolder.go` + tests — generates syllabus structure from any source, including entirely new curricula from scratch
+- [ ] `oss scaffold syllabus` and `oss scaffold subject` CLI commands wired and functional
+- [ ] `prompts/bulk_import.md` created (uses `{{syllabus_id}}` template variable, curriculum-agnostic)
 - [ ] `@oss-bot quality` responds with quality report as issue comment
 - [ ] `go test ./...` passes
 
-**Progress:** CLI + Bot + content import (URL, upload with OCR + AI Vision, text) + scaffolder | 5 packages | 5 prompt templates
+**Progress:** CLI + Bot + content import (URL, upload with OCR + AI Vision, text) + scaffolder + scaffold commands | 5 packages | 6 prompt templates
 
 ---
 
@@ -5403,6 +5525,11 @@ go test ./...
 | 24.2 | `B-W5D24-2` | Natural language → structured data parser | 🤖 | `internal/parser/contribution.go` |
 | 24.3 | `B-W5D24-3` | `POST /api/feedback` endpoint | 🤖 | `internal/api/feedback.go` |
 | 24.4 | `B-W5D24-4` | Feedback → PR pipeline | 🤖 | Wiring |
+| 24.5 | `B-W5D24-5` | Large document chunker | 🤖 | `internal/parser/chunker.go` |
+| 24.6 | `B-W5D24-6` | Bulk import parallel worker pool | 🤖 | `internal/pipeline/bulk.go` |
+| 24.7 | `B-W5D24-7` | Progress reporter interface | 🤖 | `internal/pipeline/progress.go` |
+| 24.8 | `B-W5D24-8` | Reasoning model provider | 🤖 | `internal/ai/reasoning.go` |
+| 24.9 | `B-W5D24-9` | Extended Bloom verb sets for cross-subject support | 🤖 | Update `internal/validator/bloom.go` |
 
 #### 24.1 — Contribution Parser Prompt
 
@@ -5620,6 +5747,127 @@ func (h *FeedbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+#### 24.5 — Large Document Chunker (TDD)
+
+**File:** `internal/parser/chunker.go`
+
+The chunker splits large documents into semantically meaningful chunks for parallel bulk import. It splits by chapter/heading boundaries rather than arbitrary byte offsets, preserving the logical structure of the source document.
+
+```go
+// ChunkOptions controls how documents are split.
+type ChunkOptions struct {
+    MaxChunkSize  int      // Max tokens per chunk (default: 8000)
+    OverlapTokens int      // Overlap between chunks for context continuity (default: 200)
+    SplitOn       []string // Heading patterns to split on (e.g., "# ", "## ", "Chapter ")
+}
+
+// Chunk represents a portion of a large document.
+type Chunk struct {
+    Index   int    // 0-based chunk index
+    Total   int    // Total number of chunks
+    Content string // The chunk text
+    Heading string // The heading that starts this chunk (if any)
+}
+
+// ChunkDocument splits a large document into chunks at heading boundaries.
+func ChunkDocument(text string, opts ChunkOptions) []Chunk { ... }
+```
+
+#### 24.6 — Bulk Import Parallel Worker Pool (TDD)
+
+**File:** `internal/pipeline/bulk.go`
+
+The bulk import pipeline processes multiple topics from a large document in parallel using a worker pool. Default concurrency is 3 agents (configurable via `OSS_BULK_WORKERS`).
+
+```go
+// BulkRequest configures a bulk import operation.
+type BulkRequest struct {
+    Chunks      []parser.Chunk  // Document chunks to process
+    SyllabusID  string          // Target syllabus
+    Mode        ExecutionMode   // ModePreview, ModeWriteFS, or ModeCreatePR
+    Source      string          // "cli", "bot", "web"
+    Workers     int             // Concurrent workers (default: 3)
+    Reporter    ProgressReporter // Progress callback
+}
+
+// BulkResult holds the combined results of a bulk import.
+type BulkResult struct {
+    Topics    []TopicResult   // Per-topic results
+    Errors    []error         // Any errors encountered
+    Duration  time.Duration   // Total processing time
+}
+
+// ExecuteBulk processes multiple chunks in parallel.
+func ExecuteBulk(ctx context.Context, req BulkRequest) (*BulkResult, error) { ... }
+```
+
+#### 24.7 — Progress Reporter Interface (TDD)
+
+**File:** `internal/pipeline/progress.go`
+
+The progress reporter provides real-time feedback across all three interfaces:
+
+| Interface | Implementation | Behavior |
+|-----------|---------------|----------|
+| CLI | Terminal progress bar | Shows `[3/12] Processing topic: Algebra...` |
+| Bot | Edit GitHub comment | Updates the bot's reply comment in-place with progress |
+| Web Portal | Server-Sent Events (SSE) | Streams progress updates to the browser |
+
+```go
+// ProgressReporter receives progress updates during bulk operations.
+type ProgressReporter interface {
+    // OnStart is called when processing begins.
+    OnStart(totalItems int)
+    // OnProgress is called when an item completes.
+    OnProgress(current, total int, itemName string, status string)
+    // OnComplete is called when all processing finishes.
+    OnComplete(result *BulkResult)
+    // OnError is called when an item fails.
+    OnError(itemName string, err error)
+}
+```
+
+#### 24.8 — Reasoning Model Provider (TDD)
+
+**File:** `internal/ai/reasoning.go`
+
+For complex bulk import tasks (e.g., extracting curriculum structure from ambiguous source documents), a reasoning model provides better results. Instead of implementing separate providers for each reasoning model, we use **OpenRouter** as a unified API gateway. OpenRouter provides a single OpenAI-compatible endpoint (`https://openrouter.ai/api/v1`) that routes to 100+ models, so `reasoning.go` only needs one provider implementation.
+
+Supported reasoning models (all via OpenRouter):
+- **DeepSeek R1** (`deepseek/deepseek-r1`) — DeepSeek reasoning model (default)
+- **Kimi K2.5** (`moonshotai/kimi-k2.5`) — Moonshot AI reasoning model
+- **Qwen 3.5** (`qwen/qwen3.5`) — Alibaba reasoning model
+- **OpenAI o3-mini** (`openai/o3-mini`) — OpenAI reasoning model
+
+```go
+// ReasoningProvider uses OpenRouter as a unified API gateway for reasoning models.
+// OpenRouter provides an OpenAI-compatible API, so this reuses the OpenAI provider
+// with a custom base URL (https://openrouter.ai/api/v1) and model name.
+// Used for complex extraction tasks where step-by-step reasoning improves accuracy.
+type ReasoningProvider struct {
+    provider Provider  // OpenAI-compatible provider pointed at OpenRouter
+    model    string    // e.g., "deepseek/deepseek-r1", "openai/o3-mini"
+}
+
+// NewReasoningProvider creates a reasoning-capable provider via OpenRouter.
+// Falls back to the standard provider if no reasoning model is configured.
+func NewReasoningProvider(base Provider, model string) *ReasoningProvider { ... }
+```
+
+Configured via `OSS_AI_REASONING_PROVIDER=openrouter`, `OSS_AI_REASONING_API_KEY` (OpenRouter API key), and `OSS_AI_REASONING_MODEL=deepseek/deepseek-r1` environment variables. When not configured, the pipeline falls back to the standard AI provider.
+
+#### 24.9 — Extended Bloom Verb Sets (TDD)
+
+Update `internal/validator/bloom.go` to include Bloom's taxonomy verbs beyond mathematics, supporting cross-subject curricula:
+
+| Domain | Example Verbs Added |
+|--------|-------------------|
+| Science | hypothesize, experiment, observe, classify, measure, predict |
+| Humanities | interpret, argue, critique, compare, contextualize, empathize |
+| General | design, create, evaluate, justify, synthesize, reflect |
+
+The existing Bloom validator must continue to work for mathematics while accepting these extended verbs when validating topics from other subjects. Subject detection is based on the topic's `syllabus_id`.
+
 #### Day 24 Validation
 
 ```bash
@@ -5628,13 +5876,18 @@ go test ./...
 
 #### Day 24 Exit Criteria
 
-- [ ] `prompts/contribution_parser.md` created
+- [ ] `prompts/contribution_parser.md` created (uses `{{syllabus_id}}` template variable, curriculum-agnostic)
 - [ ] `internal/parser/contribution.go` + tests — natural language → structured YAML
 - [ ] `internal/api/feedback.go` + tests — POST /api/feedback endpoint
 - [ ] Feedback handler accepts valid requests and returns 202
+- [ ] `internal/parser/chunker.go` + tests — splits large documents at heading boundaries
+- [ ] `internal/pipeline/bulk.go` + tests — parallel worker pool (default 3 agents) for multi-topic extraction
+- [ ] `internal/pipeline/progress.go` + tests — ProgressReporter interface with CLI (terminal bar), Bot (edit comment), Web (SSE) implementations
+- [ ] `internal/ai/reasoning.go` + tests — reasoning model provider via OpenRouter (DeepSeek R1, Kimi K2.5, Qwen 3.5, o3-mini) with fallback
+- [ ] `internal/validator/bloom.go` updated with extended verb sets for science, humanities, and general subjects
 - [ ] `go test ./...` passes
 
-**Progress:** CLI + Bot + API endpoints | 6 packages | 6 prompt templates
+**Progress:** CLI + Bot + API endpoints + bulk import infrastructure | 7 packages | 7 prompt templates
 
 ---
 
@@ -5647,10 +5900,11 @@ go test ./...
 | # | Task ID | Task | Owner | Files Created |
 |---|---------|------|-------|---------------|
 | 25.1 | `B-W5D25-1` | Dockerfile (multi-stage build) | 🤖 | `deploy/docker/Dockerfile` |
-| 25.2 | `B-W5D25-2` | docker-compose.yml | 🤖 | `docker-compose.yml` |
+| 25.2 | `B-W5D25-2` | docker-compose.yml (bot + Tika sidecar + optional Ollama) | 🤖 | `docker-compose.yml` |
 | 25.3 | `B-W5D25-3` | Webhook test script | 🤖 | `scripts/test-webhook.sh` |
 | 25.4 | `B-W5D25-4` | End-to-end test: issue comment → PR | 🤖🧑 | Integration test |
 | 25.5 | `B-W5D25-5` | 🧑 Education Lead reviews AI-generated PRs | 🧑 | Decision only |
+| 25.6 | `B-W5D25-6` | End-to-end test: bulk import (scaffold + multi-topic extraction) | 🤖 | Integration test |
 
 #### 25.1 — Dockerfile
 
@@ -5691,9 +5945,26 @@ services:
       - "8090:8090"
     env_file:
       - .env
+    environment:
+      - OSS_TIKA_URL=http://tika:9998
+    depends_on:
+      tika:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Apache Tika sidecar for multi-format document extraction (PDF, DOCX, PPTX, etc.)
+  tika:
+    image: apache/tika:latest
+    ports:
+      - "9998:9998"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9998/tika"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -5763,6 +6034,20 @@ Review 3 AI-generated PRs (or mock outputs):
 - [ ] Would you approve the assessment questions?
 - [ ] What needs improvement in the prompt templates?
 
+#### 25.6 — Bulk Import End-to-End Test
+
+Test the full bulk import pipeline:
+
+```bash
+# Test scaffold + bulk import from a local file
+oss scaffold syllabus --from-file test-curriculum.pdf --id test-syllabus --dry-run
+
+# Verify: directory structure created, topics extracted, progress reported
+# Verify: chunker splits document correctly
+# Verify: worker pool processes chunks in parallel (check logs for concurrent execution)
+# Verify: merge strategies work when importing into existing content
+```
+
 #### Day 25 Validation
 
 ```bash
@@ -5782,16 +6067,18 @@ docker stop $(docker ps -q --filter ancestor=oss-bot)
 #### Day 25 Exit Criteria
 
 - [ ] `deploy/docker/Dockerfile` — multi-stage build produces working image
-- [ ] `docker-compose.yml` — bot + optional Ollama
+- [ ] `docker-compose.yml` — bot + Tika sidecar + optional Ollama
 - [ ] `scripts/test-webhook.sh` — sends valid test webhook
 - [ ] End-to-end test: webhook → parse → handler called
+- [ ] End-to-end test: bulk import (scaffold → chunk → parallel extract → merge → output)
 - [ ] Docker image builds and starts successfully
+- [ ] Tika sidecar is healthy and accessible from bot container
 - [ ] 🧑 Education Lead has reviewed AI-generated content quality
 - [ ] `go test ./...` passes
 
-**Week 5 Output:** Working GitHub bot that receives webhooks and routes commands. CLI with all commands. Feedback API. Docker deployment. All tests green.
+**Week 5 Output:** Working GitHub bot that receives webhooks and routes commands. CLI with all commands (including scaffold). Bulk import pipeline with chunking, parallel workers, and progress reporting. Content merge strategies. Feedback API. Docker deployment with Tika sidecar. Reasoning model support. All tests green.
 
-**Progress:** CLI + Bot + API + Docker | 6 packages | 6 prompt templates | Docker image
+**Progress:** CLI + Bot + API + Docker + Bulk Import | 7 packages | 7 prompt templates | Docker image
 
 ---
 

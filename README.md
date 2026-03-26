@@ -22,7 +22,7 @@
 
 ## What is OSS Bot?
 
-OSS Bot is the tooling layer for [Open School Syllabus](https://github.com/p-n-ai/oss). It provides three ways to contribute curriculum content without needing to manually write YAML:
+OSS Bot is the tooling layer for [Open School Syllabus](https://github.com/p-n-ai/oss) — an open, structured curriculum for schools around the world. Whether it's Cambridge IGCSE, Malaysia's KSSM, India's CBSE, or any national or international syllabus, OSS Bot provides three ways to contribute curriculum content without needing to manually write YAML:
 
 1. **GitHub Bot** — Comment on issues/PRs in the OSS repo and the bot generates content
 2. **CLI Tools** — Import curricula from PDFs, generate assessments, translate topics
@@ -233,6 +233,27 @@ Translations: 1 language (ms) — 3/8 topics translated
 Cross-curriculum links: 4/8 topics linked to universal concepts
 ```
 
+#### Scaffold a New Curriculum
+
+```bash
+# Create a new syllabus for any country
+oss scaffold syllabus --country india --name "JEE" --board cbse
+
+# Create a new subject within a syllabus
+oss scaffold subject --syllabus india-jee --name "Chemistry" --grade 11
+```
+
+Creates the full directory structure and stub YAML files for a new curriculum.
+
+#### Bulk Import from Large Documents
+
+```bash
+# Import a 100-page DSKP or textbook — extracts all topics in parallel
+oss import --file dskp.pdf --syllabus malaysia-kssm --subject matematik-tingkatan1
+```
+
+For large documents (50+ pages), the bot processes chunks in parallel using multiple AI agents and shows real-time progress.
+
 #### Contribute via CLI
 
 ```bash
@@ -303,6 +324,25 @@ Input (natural language, document [PDF/DOCX/PPTX/XLSX/HTML], or structured comma
 └──────────┬──────────────┘
            │
            ▼
+┌─────────────────────────┐
+│  Content Merge          │
+│  - Compare new vs       │
+│    existing content     │
+│  - Append/dedup         │
+│    assessments          │
+│  - Additive teaching    │
+│    notes                │
+└──────────┬──────────────┘
+           │
+           ▼
+┌─────────────────────────┐
+│  Progress Reporter      │
+│  - CLI progress bar     │
+│  - Bot comment updates  │
+│  - Web SSE stream       │
+└──────────┬──────────────┘
+           │
+           ▼
 ┌────────────────────────┐
 │  Validation            │
 │  - JSON Schema check   │
@@ -330,6 +370,7 @@ OSS Bot uses the same AI providers as P&AI Bot:
 | OpenAI (GPT-4o) | General content generation | `OSS_AI_PROVIDER=openai` |
 | Anthropic (Claude) | Teaching notes, nuanced pedagogy | `OSS_AI_PROVIDER=anthropic` |
 | Ollama (Llama 3) | Free, self-hosted, privacy-sensitive | `OSS_AI_PROVIDER=ollama` |
+| Reasoning (DeepSeek R1, Kimi K2.5, Qwen 3.5, o3-mini) | Complex analysis: bulk import, content merge | `OSS_AI_REASONING_PROVIDER=openrouter` (via [OpenRouter](https://openrouter.ai)) |
 
 ---
 
@@ -347,7 +388,8 @@ oss-bot/
 │   │   ├── provider.go
 │   │   ├── openai.go
 │   │   ├── anthropic.go
-│   │   └── ollama.go
+│   │   ├── ollama.go
+│   │   └── reasoning.go            # Reasoning model provider
 │   ├── generator/               # Content generation pipeline
 │   │   ├── context.go           # Context builder
 │   │   ├── teaching_notes.go
@@ -355,19 +397,25 @@ oss-bot/
 │   │   ├── examples.go
 │   │   ├── translator.go
 │   │   ├── scaffolder.go        # New syllabus scaffolding
-│   │   └── importer.go          # Document import (PDF, DOCX, PPTX, HTML)
+│   │   ├── importer.go          # Document import (PDF, DOCX, PPTX, HTML)
+│   │   └── merge.go             # Content merge logic
 │   ├── validator/               # Schema validation
 │   │   ├── validator.go         # JSON Schema engine
 │   │   ├── bloom.go             # Bloom's taxonomy checks
 │   │   ├── prerequisites.go     # Prerequisite graph integrity
 │   │   ├── duplicates.go        # Duplicate content detection
 │   │   └── quality.go           # Quality level assessment
+│   ├── pipeline/                # Shared orchestrator
+│   │   ├── pipeline.go          # Execute(ctx, Request) → Result
+│   │   ├── bulk.go              # Bulk import orchestrator
+│   │   └── progress.go          # Progress reporting
 │   ├── parser/                  # Input parsing + document extraction
 │   │   ├── command.go           # Parse @oss-bot commands
 │   │   ├── contribution.go      # Natural language → structured data
 │   │   ├── document.go          # DocumentParser interface
 │   │   ├── pdf.go               # Go-native PDF extraction (CLI)
-│   │   └── tika.go              # Apache Tika multi-format extraction (server)
+│   │   ├── tika.go              # Apache Tika multi-format extraction (server)
+│   │   └── chunker.go           # Large document chunking
 │   ├── github/                  # GitHub API integration
 │   │   ├── app.go               # GitHub App authentication
 │   │   ├── webhook.go           # Webhook handler + HMAC verification
@@ -391,7 +439,9 @@ oss-bot/
 │   ├── examples.md
 │   ├── translation.md
 │   ├── contribution_parser.md
-│   └── document_import.md       # Curriculum import (PDF, DOCX, PPTX, HTML)
+│   ├── document_import.md       # Curriculum import (PDF, DOCX, PPTX, HTML)
+│   ├── bulk_import.md           # Bulk import prompt template
+│   └── content_merge.md         # Content merge prompt template
 ├── scripts/                     # Dev scripts
 │   ├── setup.sh
 │   └── test-webhook.sh
@@ -443,6 +493,10 @@ docker compose up -d    # Starts bot, web portal, and Apache Tika sidecar
 | `OSS_AI_API_KEY` | No* | API key for the chosen provider |
 | `OSS_AI_OLLAMA_URL` | No | Ollama base URL (default: `http://ollama:11434`) |
 | `OSS_TIKA_URL` | No | Apache Tika server URL (default: `http://tika:9998`) |
+| `OSS_AI_REASONING_PROVIDER` | No | Reasoning model provider (default: `openrouter`) |
+| `OSS_AI_REASONING_API_KEY` | No | OpenRouter API key for reasoning models |
+| `OSS_AI_REASONING_MODEL` | No | Model on OpenRouter (default: `deepseek/deepseek-r1`) |
+| `OSS_WORKER_COUNT` | No | Parallel workers for bulk import (default: `3`) |
 | `OSS_WEB_PORT` | No | Web portal port (default: `3001`) |
 
 *Not needed for Ollama.

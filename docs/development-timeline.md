@@ -130,7 +130,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D24-1` | `internal/parser/chunker.go` — split large documents into processable chunks by chapter/heading boundaries. Handles 100+ page PDFs within AI token limits. Chunk-level caching for retry resilience. | 🤖 | ⬜ | New: large doc support |
 | `B-W5D24-2` | `internal/pipeline/progress.go` — `ProgressReporter` interface with stages: extracting (%), chunking (%), analyzing structure, generating topic N/M, validating, writing. Implementations: CLI (terminal progress bar), Bot (edit GitHub comment with status), Web (SSE stream). All interfaces show real-time progress for long-running operations. | 🤖 | ⬜ | New: progress reporting |
 | `B-W5D24-3` | `internal/pipeline/bulk.go` — bulk import orchestrator with **parallel agent workers**: chunks are analyzed sequentially (structure extraction needs full context), but topic generation runs concurrently via configurable worker pool (`OSS_WORKER_COUNT`, default 3). Each worker is an independent AI agent processing one topic. Progress reported per-topic. Handles: `oss import --file textbook.pdf --syllabus india-jee --subject chemistry-11` → generates syllabus.yaml + subject.yaml + N topic files + content. | 🤖 | ⬜ | New: multi-agent parallel processing |
-| `B-W5D24-4` | `internal/ai/reasoning.go` — reasoning model provider (Kimi K2.5 / Qwen 3.5 / OpenAI o3-mini) for complex tasks: bulk import structure analysis, content merge decisions, cross-topic prerequisite mapping. Falls back to standard provider if unavailable. | 🤖 | ⬜ | New: reasoning model support |
+| `B-W5D24-4` | `internal/ai/reasoning.go` — reasoning model provider via OpenRouter (single OpenAI-compatible API gateway routing to DeepSeek R1, Kimi K2.5, Qwen 3.5, o3-mini, etc.) for complex tasks: bulk import structure analysis, content merge decisions, cross-topic prerequisite mapping. Falls back to standard provider if unavailable. Config: `OSS_AI_REASONING_PROVIDER=openrouter`, `OSS_AI_REASONING_MODEL=deepseek/deepseek-r1`. | 🤖 | ⬜ | New: reasoning model support via OpenRouter |
 | `B-W5D24-5` | Extend `internal/validator/bloom.go` — add cross-subject Bloom verbs: science (predict, hypothesize, synthesize, observe, experiment), humanities (interpret, critique, contextualize), general (research, collaborate, present) | 🤖 | ⬜ | New: multi-subject support |
 | `B-W5D24-6` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts | 🤖 | ⬜ | Moved from previous Day 24 |
 
@@ -219,10 +219,10 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Task Type | Model Tier | Examples | Candidates |
 |-----------|-----------|----------|------------|
 | **Standard generation** | Fast, affordable | Teaching notes, assessments, examples, translation | GPT-4o, Claude Sonnet 4, Llama 3 |
-| **Complex reasoning** | Advanced reasoning | Bulk import structure extraction, content merge decisions, cross-topic prerequisite mapping, large document analysis | Kimi K2.5, Qwen 3.5, OpenAI o3-mini, Claude Opus |
+| **Complex reasoning** | Advanced reasoning | Bulk import structure extraction, content merge decisions, cross-topic prerequisite mapping, large document analysis | DeepSeek R1, Kimi K2.5, Qwen 3.5, OpenAI o3-mini, Claude Opus (via OpenRouter) |
 | **Vision** | Multimodal | Handwriting OCR, diagram extraction, complex layouts | GPT-4o Vision, Claude Vision |
 
-The `internal/ai/reasoning.go` provider (Day 24) will support routing to reasoning models. Config via `OSS_AI_REASONING_PROVIDER` and `OSS_AI_REASONING_API_KEY` environment variables.
+The `internal/ai/reasoning.go` provider (Day 24) uses **OpenRouter** as a unified API gateway (single OpenAI-compatible endpoint at `https://openrouter.ai/api/v1`) to access all reasoning models by changing the model name string. No custom provider implementations needed per model. Config via `OSS_AI_REASONING_PROVIDER=openrouter`, `OSS_AI_REASONING_API_KEY`, and `OSS_AI_REASONING_MODEL=deepseek/deepseek-r1` environment variables.
 
 ---
 

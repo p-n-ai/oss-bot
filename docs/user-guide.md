@@ -66,6 +66,8 @@ The system auto-detects which method to use based on image content. If OCR retur
 
 For multi-page documents, the bot processes the entire file and may generate multiple topics.
 
+For large documents (50+ pages like textbooks or curriculum standards), the bot processes them in chunks and generates multiple topics. A progress indicator shows the current stage and completion percentage. Processing a 100-page document typically takes under 5 minutes.
+
 ---
 
 ## Web Portal
@@ -78,7 +80,7 @@ The web portal is the simplest way to contribute. No GitHub account, no terminal
 
 1. **Open the portal** at `contribute.p-n-ai.org`.
 
-2. **Select a syllabus and topic.** Browse the curriculum tree to find the subject area you want to improve. You can also select "Add new syllabus" to propose an entirely new curriculum.
+2. **Select a syllabus and topic.** Browse the curriculum tree to find the subject area you want to improve. You can also select "Add new curriculum" to create an entirely new syllabus from scratch — the portal will guide you through specifying the country, board, and subject. For large file uploads (50+ pages like textbooks or national curriculum standards), a progress indicator shows extraction and generation status in real time.
 
 3. **Choose a contribution type:**
    - **Teaching Notes** — explanations, engagement hooks, worked examples, tips for delivering a topic
@@ -180,7 +182,7 @@ Translates all human-readable fields while preserving the YAML structure exactly
 Example:
 
 ```
-@oss-bot scaffold syllabus science/physics/mechanics
+@oss-bot scaffold syllabus india/jee/chemistry-class11
 ```
 
 Creates the full directory structure and Level 0 stubs (topic names, empty fields) for a new syllabus. You fill in the details from there.
@@ -367,6 +369,34 @@ For images, the CLI auto-detects whether to use OCR (fast, for printed text) or 
 
 The import command extracts content from the source, identifies curriculum structure, infers Bloom's levels, and writes structured YAML files to your local clone.
 
+#### Scaffold a new curriculum
+
+```bash
+# Create a new syllabus for a country
+oss scaffold syllabus --country india --name "JEE" --board cbse
+
+# Create a new subject within a syllabus
+oss scaffold subject --syllabus india-jee --name "Chemistry" --grade 11
+```
+
+Creates the full directory structure (`curricula/{country}/{syllabus}/`) with stub YAML files. Use this when adding a curriculum that doesn't exist yet in the OSS repository.
+
+#### Bulk import from a large document
+
+```bash
+# Import a 100-page DSKP or textbook — extracts all topics
+oss import --file dskp-matematik.pdf --syllabus malaysia-kssm --subject matematik-tingkatan1
+
+# Import a textbook for a new curriculum
+oss import --file jee-chemistry-textbook.pdf --syllabus india-jee --subject chemistry-11
+```
+
+For large documents (50+ pages), the bot:
+1. Extracts text and splits into chapters
+2. Uses AI to identify topic boundaries and learning objectives
+3. Generates multiple topic files in parallel (3 topics at a time)
+4. Shows progress: "Generating topic 3/12... [=====>    ] 25%"
+
 #### Quality report
 
 ```bash
@@ -506,7 +536,8 @@ Supported upload formats: PDF, DOCX, PPTX, TXT, PNG, JPG/JPEG
 | Translate content | Select topic, choose "Translation" | `@oss-bot translate <path> to <lang>` | `oss translate --topic <path> --to <lang>` |
 | Import from URL | Paste URL in input field | `@oss-bot import <url>` | `oss import --url <url>` |
 | Import from file | Upload PDF, DOCX, PPTX, TXT, or image | `@oss-bot import` + attachment | `oss import --file <path>` |
-| Scaffold a new syllabus | Select "Add new syllabus" | `@oss-bot scaffold syllabus <path>` | Manual directory creation |
+| Create new curriculum | Select "Add new curriculum" | `@oss-bot scaffold syllabus <path>` | `oss scaffold syllabus --country <c> --name <n>` |
+| Scaffold a new syllabus | Select "Add new syllabus" | `@oss-bot scaffold syllabus <path>` | `oss scaffold syllabus --country <c> --name <n>` |
 | Fix an error | Select topic, choose "Correction" | Edit file, open PR manually | Edit file locally, push PR |
 | Check quality | Automatic during preview | `@oss-bot quality <path>` | `oss quality <path>` |
 | Validate content | Automatic during preview | Automatic before PR | `oss validate` |

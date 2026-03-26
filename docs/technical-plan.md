@@ -2,7 +2,7 @@
 
 > **Repository:** `p-n-ai/oss-bot`
 > **License:** Apache 2.0
-> **Last updated:** February 2026
+> **Last updated:** March 2026
 
 ---
 
@@ -74,6 +74,7 @@ OSS Bot uses Go to match the P&AI Bot stack, enabling code sharing and consisten
 | **Document Parsing (Server)** | Apache Tika via `google/go-tika` | latest | Multi-format document extraction (PDF, DOCX, PPTX, XLSX, HTML, 1000+ types). Runs as Docker sidecar for Bot + Web Portal. |
 | **CLI Framework** | `spf13/cobra` | v1 | Industry-standard Go CLI framework. Subcommands, flags, help generation. |
 | **Configuration** | Environment variables | — | All config via `OSS_` prefixed env vars. |
+| **Reasoning Models** | DeepSeek R1, Kimi K2.5, Qwen 3.5, o3-mini (via OpenRouter) | latest | Complex tasks: bulk import structure extraction, content merge decisions, cross-topic prerequisite mapping |
 | **Testing** | Go stdlib `testing` | — | Table-driven tests. Mock AI providers for deterministic output. |
 
 ### 2.2 AI Provider Interface
@@ -92,6 +93,7 @@ type AIProvider interface {
 | **OpenAI** | General content generation, assessments | GPT-4o, GPT-4o-mini | `OSS_AI_PROVIDER=openai` |
 | **Anthropic** | Teaching notes, nuanced pedagogy, natural language parsing | Claude Sonnet, Claude Haiku | `OSS_AI_PROVIDER=anthropic` |
 | **Ollama** | Free/offline usage, privacy-sensitive deployments | Llama 3, Mistral, Gemma | `OSS_AI_PROVIDER=ollama` |
+| **Reasoning** | Complex analysis: bulk import structure, content merge decisions, prerequisite mapping | DeepSeek R1, Kimi K2.5, Qwen 3.5, OpenAI o3-mini (via OpenRouter) | `OSS_AI_REASONING_PROVIDER=openrouter` |
 
 ### 2.3 Web Portal (Next.js)
 
@@ -194,6 +196,8 @@ curl -sSL https://github.com/p-n-ai/oss-bot/releases/latest/download/oss-$(uname
 | `oss translate --syllabus <path> --to <lang>` | Translate all topics in a syllabus | Yes |
 | `oss quality <syllabus-path>` | Quality report for a syllabus | No |
 | `oss contribute "<natural language>"` | Parse natural language into structured PR | Yes |
+| `oss scaffold syllabus --country <c> --name <n>` | Create new curriculum directory + syllabus.yaml | Yes |
+| `oss scaffold subject --syllabus <s> --name <n> --grade <g>` | Create new subject + topics directory | Yes |
 
 **CLI architecture:**
 
@@ -295,6 +299,32 @@ Input (command + topic path + optional natural language)
                    │
                    ▼
 ┌──────────────────────────────────────┐
+│  Stage 2.5: Content Merge            │
+│                                      │
+│  Compare new content vs existing:    │
+│  ├── Assessments/Examples: append +  │
+│  │   dedup (>95% skip, 85-95% flag)  │
+│  ├── Teaching notes: additive only   │
+│  │   (keep all existing sections,    │
+│  │    add new)                        │
+│  └── Never silently drop content     │
+└──────────────────┬───────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────┐
+│  Stage 2.7: Progress Reporting       │
+│                                      │
+│  ProgressReporter interface:         │
+│  ├── Stages: extracting%, chunking%, │
+│  │   analyzing structure, generating │
+│  │   topic N/M, validating, writing  │
+│  ├── CLI: terminal progress bar      │
+│  ├── Bot: edit GitHub comment        │
+│  └── Web: SSE stream                 │
+└──────────────────┬───────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────┐
 │  Stage 3: Validation                 │
 │                                      │
 │  ├── JSON Schema validation          │
@@ -328,7 +358,7 @@ Input (command + topic path + optional natural language)
 
 ### 4.2 Prompt Templates
 
-Prompt templates live in `prompts/` as Markdown files with template variables. Each template encodes pedagogical best practices and output format requirements.
+Prompt templates live in `prompts/` as Markdown files with template variables. Each template encodes pedagogical best practices and output format requirements. All prompts are **curriculum-agnostic** — they use `{{syllabus_id}}`, `{{subject}}`, and other template variables rather than hardcoding any specific curriculum (e.g., KSSM, IGCSE). This ensures the same prompts work across any syllabus.
 
 | Template | Purpose | Key Instructions |
 |----------|---------|-----------------|
@@ -338,6 +368,8 @@ Prompt templates live in `prompts/` as Markdown files with template variables. E
 | `translation.md` | Translate topic files | Preserve structure exactly. Translate only human-readable text fields. Use mathematically correct terminology in target language. |
 | `contribution_parser.md` | Parse natural language into structured data | Identify contribution type (misconception, teaching note, assessment, etc.). Extract structured fields. Preserve teacher's voice where possible. |
 | `document_import.md` | Extract curriculum structure from documents | Identify subjects, topics, learning objectives. Infer Bloom's levels from specification verbs. Map prerequisite relationships. Supports PDF, DOCX, PPTX, HTML input (text pre-extracted by parser). |
+| `bulk_import.md` | Identify chapter/section boundaries from large documents, extract multiple topics with LOs | Uses reasoning model. Subject-agnostic. |
+| `content_merge.md` | Compare new vs existing content, decide merge/supplement/skip | Additive by default. |
 
 ### 4.3 Context Building Strategy
 
@@ -364,6 +396,30 @@ type GenerationContext struct {
 ```
 
 This context is injected into the prompt template before the AI call, ensuring the output matches the existing style, references correct prerequisites, and meets schema requirements.
+
+### 4.4 Bulk Import Pipeline (Large Documents)
+
+For documents with 50+ pages (DSKP, textbooks, exam compilations):
+
+1. **Extract text** (PDF/Tika)
+2. **Chunk** by chapter/heading boundaries (`chunker.go`)
+3. **Structure analysis** via reasoning model on OpenRouter (sequential — needs full context)
+4. **Topic generation** via parallel worker pool (configurable, default 3 agents)
+   - Each worker independently generates: topic YAML + teaching notes + assessments + examples
+   - Workers process topics concurrently for speed
+5. **Cross-topic validation** (sequential — check prereq consistency)
+6. **Write/PR** all files
+
+Performance target: 100-page document < 5 minutes
+
+### 4.5 Content Merge Strategy
+
+When new content targets a topic that already has content:
+
+- **Assessments:** Append new questions, skip exact duplicates (>95% cosine similarity), flag near-duplicates (85-95%) in PR
+- **Worked Examples:** Append, dedup by scenario, re-sort by difficulty
+- **Teaching Notes:** Additive only — AI keeps ALL existing sections, adds/enhances with new knowledge. Never removes unless explicitly instructed.
+- **Principle:** Additive by default. The bot accumulates knowledge.
 
 ---
 
@@ -658,6 +714,10 @@ All configuration via environment variables with `OSS_` prefix.
 | `OSS_LOG_LEVEL` | No | `info` | `debug`, `info`, `warn`, `error` |
 | `OSS_PROMPTS_DIR` | No | `./prompts` | Path to prompt template directory |
 | `OSS_TIKA_URL` | No | `http://tika:9998` | Apache Tika server URL (server only, not needed for CLI) |
+| `OSS_AI_REASONING_PROVIDER` | No | `openrouter` | Reasoning model provider (uses OpenRouter as unified API gateway) |
+| `OSS_AI_REASONING_API_KEY` | No | — | OpenRouter API key for reasoning models |
+| `OSS_AI_REASONING_MODEL` | No | `deepseek/deepseek-r1` | Reasoning model name on OpenRouter (e.g., `deepseek/deepseek-r1`, `openai/o3-mini`) |
+| `OSS_WORKER_COUNT` | No | `3` | Parallel worker count for bulk import |
 | `OSS_GITHUB_TOKEN` | No (CLI) | — | Personal access token for CLI PR creation |
 
 *Not needed for Ollama.
@@ -719,6 +779,7 @@ make docker                          # Build multi-stage image
 | Document import (CLI, PDF) | <60s for a 50-page PDF | Go-native PDF extraction. Streaming AI processing per section. |
 | Document import (Server, multi-format) | <90s for a 50-page document | Tika extraction + streaming AI processing. Supports PDF, DOCX, PPTX, XLSX, HTML. |
 | Concurrent webhook handling | 50 simultaneous events | Go goroutines. Each webhook processed independently. |
+| Bulk import (100-page document) | <5min | Parallel worker pool (default 3 agents). Chunking + concurrent topic generation. |
 | CLI startup time | <100ms | Single Go binary, no runtime. |
 
 ---

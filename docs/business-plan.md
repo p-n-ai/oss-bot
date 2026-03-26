@@ -1,12 +1,12 @@
 # OSS Bot — Business Plan
 
-*Last updated: February 2026*
+*Last updated: March 2026*
 
 ---
 
 ## Executive Summary
 
-OSS Bot is the AI-powered tooling layer for the [Open School Syllabus](https://github.com/p-n-ai/oss). It provides three interfaces — a GitHub bot, a CLI tool, and a web contribution portal — that enable anyone to contribute structured curriculum content without needing to write YAML, understand JSON Schemas, or use Git.
+OSS Bot is the AI-powered tooling layer for the [Open School Syllabus](https://github.com/p-n-ai/oss). It provides three interfaces — a GitHub bot, a CLI tool, and a web contribution portal — that enable anyone to contribute structured curriculum content without needing to write YAML, understand JSON Schemas, or use Git. OSS Bot supports curricula from around the world — any teacher from any country can upload their curriculum documents and have the bot structure them into the OSS format.
 
 OSS Bot exists to solve one problem: **the contribution bottleneck.** Teachers have the pedagogical knowledge that makes AI tutoring effective. But they can't contribute that knowledge into a machine-readable curriculum repository if doing so requires technical skills. OSS Bot bridges this gap — teachers describe their expertise in natural language, and the bot structures it into schema-valid, review-ready content.
 
@@ -58,6 +58,8 @@ A command-line tool for developers and power users who work with local OSS clone
 oss validate                                          # Validate all YAML
 oss generate teaching-notes cambridge/.../quadratics  # Generate content
 oss import --pdf ./syllabus.pdf --board cambridge     # Import from PDF
+oss scaffold syllabus --country india --name "JEE"    # Create new curriculum
+oss import --file textbook.pdf --syllabus india-jee   # Bulk import from large document
 oss translate --topic ... --to ms                     # Translate
 oss quality cambridge/igcse/mathematics-0580          # Quality report
 oss contribute "I teach this topic by..."             # Natural language
@@ -174,6 +176,20 @@ Input (natural language, command, or PDF)
            │
            ▼
 ┌──────────────────────────┐
+│  2.5. Content Merge      │  Compare new vs existing content,
+│                          │  additive by default — never
+│                          │  overwrite without explicit intent
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│  2.7. Progress Reporting │  Real-time status updates for
+│                          │  long operations (bulk imports,
+│                          │  large document processing)
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
 │  3. Validation           │  JSON Schema check, Bloom's taxonomy
 │                          │  verification, prerequisite graph
 │                          │  consistency, duplicate detection
@@ -244,6 +260,10 @@ Templates produce predictable but rigid output. Curriculum content is inherently
 
 Different users have different comfort zones. Forcing teachers onto GitHub loses 90% of potential contributors. Forcing developers onto a web form frustrates them. Three interfaces, one pipeline — maximum reach, minimal duplication.
 
+### Why Reasoning Models for Complex Tasks?
+
+Standard AI models (GPT-4o, Claude Sonnet) excel at content generation. But complex tasks like extracting topic structure from a 100-page document, deciding how to merge new content with existing, or mapping cross-topic prerequisites require deeper reasoning. OSS Bot routes these tasks to reasoning models (DeepSeek R1, Kimi K2.5, Qwen 3.5, o3-mini) that are optimized for multi-step analysis while remaining affordable. All reasoning models are accessed through **OpenRouter** — a single OpenAI-compatible API gateway (`https://openrouter.ai/api/v1`) that routes to 100+ models. This means only one provider implementation is needed (`internal/ai/reasoning.go`), and switching models is just a config change (`OSS_AI_REASONING_MODEL=deepseek/deepseek-r1`).
+
 ---
 
 ## Key Metrics
@@ -257,6 +277,8 @@ Different users have different comfort zones. Forcing teachers onto GitHub loses
 | Unique contributors using bot/CLI/web | 5 | 20 | 100+ | 500+ |
 | Web portal contributions | 0 | 10 | 50+ | 200+ |
 | AI-observed improvements from P&AI | 0 | 10 | 50+ | 200+ |
+| Curricula onboarded (countries) | 1 (MY) | 3 | 10+ | 30+ |
+| Bulk imports processed | 0 | 5 | 20+ | 100+ |
 
 ### Generation Quality Metrics
 
@@ -356,6 +378,8 @@ Costs scale linearly with contribution volume — more contributions mean more A
 | GitHub API rate limits | Low | Low | Batch operations. Cache API responses. The bot operates within reasonable call volumes. |
 | AI costs spike with volume | Low | Low | Route generation to cheaper models when possible. Ollama option for self-hosted deployments. Budget caps in configuration. |
 | Competing tool emerges | Low | Low | OSS Bot is tightly integrated with OSS's specific schema and workflow. General-purpose tools won't match this specificity. |
+| Large document processing fails | Medium | Medium | Chunking strategy with retry. Parallel workers with per-chunk caching. Progress reporting so users know what's happening. |
+| Content merge produces inconsistencies | Low | Medium | All merges go through PR review. Merge report in PR description shows exactly what was added/skipped/flagged. Additive-only for teaching notes. |
 
 ---
 
@@ -365,7 +389,8 @@ Costs scale linearly with contribution volume — more contributions mean more A
 |------|-----------|
 | Week 0–2 | `oss validate` CLI tool + GitHub CI integration |
 | Week 3–4 | `oss generate` commands (teaching notes, assessments) |
-| Week 4 | `oss import --pdf` for curriculum importing |
+| Week 4 | `oss import --pdf` for curriculum importing. **Complete** — delivered PDF/DOCX/URL import, image OCR + AI Vision extraction, unified pipeline orchestrator, and web portal UI/UX specification. |
+| Week 5 | Bulk import pipeline for large documents, content merge (new vs existing), reasoning model routing, parallel workers with progress reporting |
 | Week 5 | `oss translate` and `oss quality` commands |
 | Week 5 | `oss contribute` (natural language → structured PR) |
 | Week 6 | GitHub Bot (`@oss-bot`) responding to commands in OSS repo |
@@ -379,9 +404,9 @@ Costs scale linearly with contribution volume — more contributions mean more A
 
 ## Vision
 
-**Make it effortless for any educator on Earth to contribute their teaching wisdom to an open, AI-ready curriculum — in their own language, in their own words, without ever touching a line of code.**
+**Make it effortless for any educator on Earth to contribute their teaching wisdom to an open, AI-ready curriculum — from any country, in any language, in their own words, without ever touching a line of code.**
 
-The world's best teaching strategies live in the heads of individual teachers. OSS Bot is the bridge that turns those strategies into structured data that AI agents can use to teach millions of students. Every teacher who contributes multiplies their impact from one classroom to every classroom that uses OSS.
+The world's best teaching strategies live in the heads of individual teachers. OSS Bot is the bridge that turns those strategies into structured data that AI agents can use to teach millions of students. Every teacher who contributes — whether from Malaysia, India, Kenya, or Brazil — multiplies their impact from one classroom to every classroom that uses OSS.
 
 ---
 

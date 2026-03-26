@@ -4,22 +4,24 @@ Agent guidance for working in this repository.
 
 ## 1. Repository Status (Current Reality)
 
-This repository is currently **documentation-only**. There is no implementation code yet.
+**Week 4 complete (Days 16-20).** The CLI tool is fully functional with 58 tests passing across 5 packages.
 
-Current files:
+Implemented packages:
+- `cmd/oss/main.go` — CLI with validate, generate, quality, translate commands
+- `cmd/bot/main.go` — Server placeholder (real implementation Week 5)
+- `internal/validator/` — JSON Schema, Bloom's taxonomy, prerequisites, duplicates, quality (5 files + 5 test files)
+- `internal/ai/` — Provider interface + OpenAI, Anthropic, Ollama, Mock (5 files + 1 test file)
+- `internal/generator/` — Context builder, teaching notes, assessments, examples, translator (6 files + 6 test files)
+- `internal/pipeline/` — Unified orchestrator with Preview/WriteFS/CreatePR modes (1 file + 2 test files)
+- `internal/output/` — LocalWriter + GitHubWriter placeholder (2 files)
+- `prompts/` — 4 templates: teaching_notes.md, assessments.md, examples.md, translation.md
+- Config: Makefile, .env.example, .github/workflows/ci.yml
 
-- `README.md`
-- `CLAUDE.md`
-- `docs/technical-plan.md`
-- `docs/development-timeline.md`
-- `docs/business-plan.md`
-- `LICENSE`
-
-Do not assume paths like `cmd/`, `internal/`, `web/`, `prompts/`, `scripts/`, `docker-compose.yml`, or `Makefile` exist unless they are created in the same task.
+**Week 5 (in progress):** GitHub Bot, document import, content merge, bulk import, reasoning models.
 
 ## 2. Project Intent
 
-OSS Bot is planned as an AI tooling layer for [p-n-ai/oss](https://github.com/p-n-ai/oss) with three interfaces:
+OSS Bot is an AI tooling layer for building, enriching, and maintaining educational curricula from around the world, with three interfaces:
 
 1. GitHub bot (`@oss-bot`)
 2. CLI tool (`oss`)
@@ -85,6 +87,10 @@ Mark each task's Status as `✅` immediately upon completion. Use the Remark col
   - Next.js + TypeScript web app
   - `OSS_`-prefixed environment configuration
 - Keep claims in docs accurate to repository reality. Mark roadmap content as planned.
+- All prompt templates must be curriculum-agnostic — use `{{syllabus_id}}` template variables, never hardcode KSSM/BM or any specific curriculum.
+- Content merge is additive by default — never remove existing content unless explicitly instructed.
+- Large document processing must include progress reporting.
+- The pipeline has 6 stages: Context Build → AI Generate → Content Merge → Progress → Validate → Output.
 
 ### Test-Driven Development (TDD) — Mandatory
 

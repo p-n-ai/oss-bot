@@ -10,7 +10,7 @@ OSS Bot is the AI-powered tooling layer for the [Open School Syllabus (OSS)](htt
 2. **CLI Tool** (`oss`) — local validation, generation, import, translation
 3. **Web Portal** (`contribute.p-n-ai.org`) — teacher-friendly contribution form
 
-All tools share a single AI content generation pipeline: Context Building -> AI Generation -> Validation -> Output (PR).
+All tools share a single AI content generation pipeline: Context Building -> AI Generation -> Content Merge -> Progress Reporting -> Validation -> Output (PR).
 
 ## Tech Stack
 
@@ -37,6 +37,7 @@ All tools share a single AI content generation pipeline: Context Building -> AI 
 - OpenAI (GPT-4o) — general content generation
 - Anthropic (Claude) — teaching notes, pedagogy
 - Ollama (Llama 3) — free, self-hosted option
+- Reasoning Models (DeepSeek R1, Kimi K2.5, Qwen 3.5, o3-mini) via OpenRouter — complex analysis: bulk import, content merge, prerequisite mapping
 
 ## Project Structure
 
@@ -50,9 +51,12 @@ oss-bot/
 │   │   ├── provider.go              # Provider interface
 │   │   ├── openai.go
 │   │   ├── anthropic.go
-│   │   └── ollama.go
+│   │   ├── ollama.go
+│   │   └── reasoning.go             # Reasoning model provider
 │   ├── pipeline/                    # Shared orchestrator (ALL interfaces use this)
-│   │   └── pipeline.go              # Execute(ctx, Request) → Result
+│   │   ├── pipeline.go              # Execute(ctx, Request) → Result
+│   │   ├── bulk.go                  # Bulk import orchestrator (parallel workers)
+│   │   └── progress.go              # Progress reporting (CLI bar, Bot comment, Web SSE)
 │   ├── output/                      # Output writers
 │   │   ├── writer.go                # Writer interface + LocalWriter (CLI)
 │   │   └── github.go                # GitHubWriter (Bot + Web Portal)
@@ -63,7 +67,8 @@ oss-bot/
 │   │   ├── examples.go
 │   │   ├── translator.go
 │   │   ├── scaffolder.go
-│   │   └── importer.go              # Document -> curriculum import
+│   │   ├── importer.go              # Document -> curriculum import
+│   │   └── merge.go                 # Content merge (append + dedup assessments, additive teaching notes)
 │   ├── validator/                   # Schema validation
 │   │   ├── validator.go             # JSON Schema engine
 │   │   ├── bloom.go                 # Bloom's taxonomy checks
@@ -77,7 +82,8 @@ oss-bot/
 │   │   ├── pdf.go                   # PDF text extraction (Go-native, for CLI)
 │   │   ├── tika.go                  # Apache Tika client (multi-format, for server)
 │   │   ├── url.go                   # URL fetcher (web page → text)
-│   │   └── image.go                 # Image extraction (OCR + AI Vision)
+│   │   ├── image.go                 # Image extraction (OCR + AI Vision)
+│   │   └── chunker.go              # Large document chunking
 │   ├── github/                      # GitHub API integration
 │   │   ├── app.go                   # GitHub App auth (JWT + installation tokens)
 │   │   ├── webhook.go               # Webhook handler + HMAC verification
@@ -98,7 +104,9 @@ oss-bot/
 │   ├── examples.md
 │   ├── translation.md
 │   ├── contribution_parser.md
-│   └── document_import.md           # Curriculum import (PDF, DOCX, PPTX, HTML)
+│   ├── document_import.md           # Curriculum import (PDF, DOCX, PPTX, HTML)
+│   ├── bulk_import.md               # Multi-topic extraction from large docs
+│   └── content_merge.md             # AI-driven content comparison
 ├── deploy/
 │   └── docker/
 │       ├── Dockerfile               # Multi-stage: Go + Web build
@@ -123,6 +131,9 @@ go run ./cmd/oss generate teaching-notes <topic-path>
 go run ./cmd/oss generate assessments <topic-path> --count 5 --difficulty medium
 go run ./cmd/oss translate --topic <path> --to <lang>
 go run ./cmd/oss quality <syllabus-path>
+go run ./cmd/oss scaffold syllabus --country india --name JEE
+go run ./cmd/oss scaffold subject --syllabus india-jee --name Chemistry --grade 11
+go run ./cmd/oss import --file textbook.pdf --syllabus india-jee --subject chemistry-11
 
 # Bot development
 npx smee -u https://smee.io/<channel> -p 8090   # Forward webhooks locally
@@ -178,11 +189,13 @@ result, err := pipeline.Execute(ctx, pipeline.Request{
 - `GitHubWriter` — creates PRs via GitHub API (Bot, Web Portal)
 
 ### Content Generation Pipeline
-The pipeline executes 4 stages regardless of interface:
+The pipeline executes 6 stages regardless of interface:
 1. **Context Builder** — loads topic YAML, related topics, schema rules, style examples (~8K tokens)
 2. **AI Generation** — injects context into prompt template, calls AI provider
-3. **Validation** — JSON Schema check, Bloom's taxonomy, prerequisite graph, duplicate detection
-4. **Output** — based on execution mode: write files, open PR, or return preview
+3. **Content Merge** — compare new vs existing, additive by default
+4. **Progress Reporting** — real-time status updates
+5. **Validation** — JSON Schema check, Bloom's taxonomy, prerequisite graph, duplicate detection
+6. **Output** — based on execution mode: write files, open PR, or return preview
 
 If validation fails, the pipeline retries once with error feedback before reporting failure.
 
@@ -208,8 +221,14 @@ type DocumentParser interface {
 }
 ```
 
+### Content Merge Strategy
+When new content targets a topic with existing content:
+- **Assessments/Examples:** Append + dedup (>95% skip, 85-95% flag in PR)
+- **Teaching Notes:** Additive only — keep all existing sections, add new knowledge
+- **Principle:** Never silently drop content. Additive by default.
+
 ### Prompt Templates
-Located in `prompts/` as Markdown files with template variables (e.g., `{{topic}}`, `{{prerequisites}}`). These encode pedagogical best practices and output format requirements.
+Located in `prompts/` as Markdown files with template variables (e.g., `{{topic}}`, `{{prerequisites}}`). These encode pedagogical best practices and output format requirements. All prompts are curriculum-agnostic — use `{{syllabus_id}}` template variables, never hardcode specific curricula.
 
 ## Environment Variables
 
@@ -226,6 +245,10 @@ All config uses `OSS_` prefix. Key variables:
 | `OSS_REPO_OWNER` | Yes | GitHub org/user (default: `p-n-ai`) |
 | `OSS_REPO_NAME` | Yes | Repository name (default: `oss`) |
 | `OSS_TIKA_URL` | No | Tika server URL (default: `http://tika:9998`, server only) |
+| `OSS_AI_REASONING_PROVIDER` | No | Reasoning model provider (default: `openrouter`) |
+| `OSS_AI_REASONING_API_KEY` | No | OpenRouter API key for reasoning models |
+| `OSS_AI_REASONING_MODEL` | No | Reasoning model on OpenRouter (default: `deepseek/deepseek-r1`) |
+| `OSS_WORKER_COUNT` | No | Parallel workers for bulk import (default: 3) |
 
 *Not needed for Ollama.
 
@@ -304,7 +327,7 @@ go test -run TestValidateSchema ./internal/validator/...
 ## Development Notes
 
 - **Build order priority:** Validator -> Generator -> GitHub Bot -> Web Portal
-- **No code exists yet** — this repo is currently documentation-only (plans, README, business docs)
+- **Week 4 complete** — CLI fully functional with validate, generate, quality, translate. 58 tests passing across 5 packages (validator, ai, generator, pipeline, output).
 - The AI provider interface is shared with P&AI Bot; keep implementations compatible
 - All PRs from the bot require human review before merging
 - Schema validation must block invalid content — never submit invalid YAML

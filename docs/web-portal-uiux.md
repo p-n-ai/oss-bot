@@ -26,6 +26,7 @@ This document provides UI/UX specifications, layout wireframes, and interaction 
 - [Shared Components](#shared-components)
 - [Responsive Behavior](#responsive-behavior)
 - [Interaction Patterns](#interaction-patterns)
+- [Technical Notes](#technical-notes)
 
 ---
 
@@ -299,11 +300,57 @@ The contribution process follows a linear 5-step wizard. A `StepIndicator` at th
 └────────────────────────────────┘
 ```
 
+**Create New Curriculum sub-flow (triggered by "+ Add new syllabus"):**
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  ADD NEW CURRICULUM                                              │
+│                                                                  │
+│  Country:                                                        │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Select country or type a new one                        ▼ │  │
+│  │ Malaysia                                                  │  │
+│  │ United Kingdom                                            │  │
+│  │ India                                                     │  │
+│  │ Singapore                                                 │  │
+│  │ + Add new country: "Kenya"                                │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  Syllabus name (e.g. KSSM, GCSE, CBSE, CBC, JEE):               │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                                                            │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  Subject:                                                        │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ Select subject or type a new one                        ▼ │  │
+│  │ Mathematics                                               │  │
+│  │ Physics                                                   │  │
+│  │ Chemistry                                                 │  │
+│  │ + Add new subject: "Biology"                              │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  Topic name (optional — can be scaffolded later):                │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                                                            │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  This will scaffold a new curriculum directory structure in the  │
+│  OSS repository. An educator will review the PR before merging. │
+│                                                                  │
+│                                  [Cancel]  [Create & continue →] │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+The "Create New Curriculum" flow supports adding entirely new countries, syllabi, and subjects — not just selecting from existing ones. The scaffolder generates the directory structure (`country/syllabus/subject/topic/`) with stub YAML files. After creation, the user continues through the contribution wizard with the new topic pre-selected.
+
 **Interactions:**
 - Tree nodes expand/collapse on click
 - Search filters tree in real-time
 - Selecting a topic shows quality summary in the right panel
-- "Add new syllabus" opens a scaffolding sub-flow
+- "+ Add new syllabus" opens the Create New Curriculum dialog (above)
+- Country and subject fields support both selection from existing values and free-text entry for new ones
+- "Create & continue" scaffolds the new curriculum path and pre-selects it in the tree
 - "Next" is disabled until a topic is selected
 
 ---
@@ -488,11 +535,65 @@ This step supports three input methods: URL, Text, and Upload. Tabs switch betwe
 │  └──────────────────────────────────────────────────────┘       │
 ```
 
+**Bulk Import Progress (for large files, 50+ pages):**
+
+When a user uploads a large document (e.g., a full syllabus PDF), the portal shows a multi-stage progress UI instead of a simple spinner:
+
+```
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  📄 national-curriculum-maths.pdf                  ✕ Remove  │  │
+│  │  8.7 MB · PDF · 124 pages                                   │  │
+│  │                                                              │  │
+│  │  ┌──────────────────────────────────────────────────────┐    │  │
+│  │  │                                                      │    │  │
+│  │  │  ✅ Upload complete                                  │    │  │
+│  │  │  ████████████████████████████████  100%               │    │  │
+│  │  │                                                      │    │  │
+│  │  │  ✅ Text extraction                                  │    │  │
+│  │  │  ████████████████████████████████  100%               │    │  │
+│  │  │                                                      │    │  │
+│  │  │  ✅ Analyzing structure...                           │    │  │
+│  │  │  Found 12 topics across 4 subjects                   │    │  │
+│  │  │                                                      │    │  │
+│  │  │  ⏳ Generating content...                            │    │  │
+│  │  │  ████████████████░░░░░░░░░░░░░░░░  Generating        │    │  │
+│  │  │  topic 3 of 12: "Quadratic Equations"                │    │  │
+│  │  │                                                      │    │  │
+│  │  │  ○ Final review                                      │    │  │
+│  │  │                                                      │    │  │
+│  │  └──────────────────────────────────────────────────────┘    │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+```
+
+After bulk generation completes, the preview (Step 4) shows all generated files in an accordion:
+
+```
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  BULK IMPORT RESULTS — 12 topics generated                   │  │
+│  │                                                              │  │
+│  │  ▾ Algebra / Quadratic Equations          L3 ✅ Valid        │  │
+│  │    (expanded: rendered preview + YAML)                       │  │
+│  │                                                              │  │
+│  │  ▸ Algebra / Simultaneous Equations       L3 ✅ Valid        │  │
+│  │  ▸ Algebra / Inequalities                 L2 ⚠ 1 warning    │  │
+│  │  ▸ Geometry / Triangles                   L3 ✅ Valid        │  │
+│  │  ▸ Geometry / Circles                     L3 ✅ Valid        │  │
+│  │  ▸ ... (7 more)                                             │  │
+│  │                                                              │  │
+│  │  Summary: 11 passed · 1 warning · 0 errors                  │  │
+│  │                                                              │  │
+│  │                              [← Edit]  [Submit all →]        │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+```
+
+Progress updates are streamed in real-time via SSE (see [Technical Notes](#technical-notes) below).
+
 **Interactions:**
 - Tab switch retains previously entered content (user can combine URL + text)
 - Text area shows placeholder hints that change by contribution type
 - Character counter turns amber below minimum, emerald when sufficient
 - Upload shows progress bar during extraction
+- For large files (50+ pages), the multi-stage bulk import progress UI is shown automatically
 - "Use AI Vision" toggle appears only for image files
 - "Preview" button triggers AI generation pipeline
 
@@ -754,7 +855,7 @@ This step supports three input methods: URL, Text, and Upload. Tabs switch betwe
 ├───────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌──────────────────────────────────────────────────────────────┐ │
-│  │  Syllabus:  [Malaysia / KSSM / Mathematics ▼]                │ │
+│  │  Country:  [All ▼]  Syllabus:  [All ▼]  Subject:  [All ▼]    │ │
 │  │                                                              │ │
 │  │  QUALITY HEATMAP                                             │ │
 │  │                                                              │ │
@@ -793,7 +894,8 @@ This step supports three input methods: URL, Text, and Upload. Tabs switch betwe
 ```
 
 **Interactions:**
-- Syllabus dropdown switches heatmap data
+- Country / Syllabus / Subject dropdowns filter the heatmap (cascade: selecting a country narrows syllabus options)
+- Supports browsing any curriculum worldwide (e.g., Malaysia KSSM, India CBSE, UK GCSE, Kenya CBC)
 - Click topic row → navigates to `/contribute` with topic pre-selected
 - "Contribute" links pre-fill the wizard with the suggested contribution type
 - Heatmap cells are colored by quality level
@@ -911,6 +1013,8 @@ Inline status indicator for validation checks.
 3. On success → transition to Step 4 (Preview)
 4. On failure → error message with "Retry" and "Edit input" options
 
+For bulk imports (large files with multiple topics), the progress UI shows per-topic generation status ("Generating topic 3/12..."). All progress updates are delivered via SSE (see [Technical Notes](#technical-notes)).
+
 ### File Upload
 1. User drops file or clicks browse
 2. File type validated client-side (extension + MIME)
@@ -936,8 +1040,62 @@ Inline status indicator for validation checks.
 ### Data Loading
 - Client components use TanStack Query with loading/error states
 - Syllabus tree loaded once, cached for session
-- Preview generation uses streaming response for progress updates
+- Preview generation uses streaming response for progress updates via SSE
 - Every data section has empty, loading, and error states via `StatePanel`
+
+---
+
+## Technical Notes
+
+### Progress Streaming via SSE
+
+All long-running operations (AI generation, bulk import, file extraction) stream real-time progress to the frontend using **Server-Sent Events (SSE)**.
+
+**Endpoint:** `GET /api/progress/:jobId`
+
+**Flow:**
+1. Client initiates a generation or import via `POST /api/preview` or `POST /api/submit`
+2. Server responds immediately with `{ "jobId": "abc123" }`
+3. Client opens an SSE connection to `GET /api/progress/abc123`
+4. Server pushes events as the pipeline progresses:
+
+```
+event: progress
+data: {"stage": "upload", "percent": 100, "message": "Upload complete"}
+
+event: progress
+data: {"stage": "extraction", "percent": 65, "message": "Extracting text..."}
+
+event: progress
+data: {"stage": "analysis", "percent": 100, "message": "Found 12 topics across 4 subjects"}
+
+event: progress
+data: {"stage": "generation", "percent": 25, "current": 3, "total": 12, "message": "Generating topic 3/12: Quadratic Equations"}
+
+event: progress
+data: {"stage": "validation", "percent": 100, "message": "Validation complete"}
+
+event: complete
+data: {"result": { ... }}
+```
+
+5. Client closes the SSE connection on `complete` or `error` event
+
+**Stages:** `upload` | `extraction` | `analysis` | `generation` | `validation` | `submission`
+
+The SSE approach avoids polling, provides instant UI updates, and works well with the existing TanStack Query setup (via `useEventSource` or a custom hook). For single-topic generation, stages progress quickly. For bulk imports (50+ pages, multiple topics), the `generation` stage reports per-topic progress.
+
+### Global Curriculum Scope
+
+The portal is designed for curricula from around the world. The curriculum browser uses a **Country -> Syllabus -> Subject -> Topic** hierarchy. Examples include:
+
+- Malaysia / KSSM / Mathematics / Algebra
+- India / CBSE / Physics / Mechanics
+- United Kingdom / GCSE / Chemistry / Organic Chemistry
+- Kenya / CBC / Mathematics / Number Patterns
+- Singapore / MOE / Mathematics / Calculus
+
+Users can contribute to any existing curriculum or create entirely new ones via the "Create New Curriculum" flow (see [Step 1](#step-1--select-syllabus--topic)).
 
 ---
 
@@ -972,6 +1130,7 @@ Aligned with P&AI Bot admin panel for ecosystem consistency:
 | Quality Reports | `web/src/app/quality/page.tsx` |
 | My Contributions | `web/src/app/contributions/page.tsx` |
 | Syllabus Picker | `web/src/components/syllabus-picker.tsx` |
+| Create New Curriculum | `web/src/components/create-curriculum-dialog.tsx` |
 | Topic Picker | `web/src/components/topic-picker.tsx` |
 | Contribution Form | `web/src/components/contribution-form.tsx` |
 | YAML Preview | `web/src/components/yaml-preview.tsx` |
@@ -979,7 +1138,9 @@ Aligned with P&AI Bot admin panel for ecosystem consistency:
 | Quality Badge | `web/src/components/quality-badge.tsx` |
 | Validation Status | `web/src/components/validation-status.tsx` |
 | File Upload | `web/src/components/file-upload.tsx` |
+| Bulk Import Progress | `web/src/components/bulk-import-progress.tsx` |
 | Submission Status | `web/src/components/submission-status.tsx` |
+| SSE Progress Hook | `web/src/lib/use-progress.ts` |
 | API Client | `web/src/lib/api.ts` |
 | Auth (GitHub OAuth) | `web/src/lib/auth.ts` |
 | Shared Components | `web/src/components/` (page-hero, stat-card, state-panel) |
