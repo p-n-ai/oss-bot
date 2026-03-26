@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 )
 
@@ -57,15 +58,32 @@ func NewReasoningProvider(base Provider, model string) *ReasoningProvider {
 	return rp
 }
 
+// isKnownReasoningModel reports whether model is in the SupportedReasoningModels list.
+func isKnownReasoningModel(model string) bool {
+	for _, m := range SupportedReasoningModels() {
+		if m.ID == model {
+			return true
+		}
+	}
+	return false
+}
+
 // NewReasoningProviderFromEnv creates a ReasoningProvider using environment variables:
 //   - OSS_AI_REASONING_API_KEY — OpenRouter API key
 //   - OSS_AI_REASONING_MODEL   — model name (default: deepseek/deepseek-r1)
 //
 // Falls back to the base provider when the env vars are not set.
+// Logs a warning and resets to the default when an unrecognised model is configured.
 func NewReasoningProviderFromEnv(base Provider) *ReasoningProvider {
 	apiKey := os.Getenv("OSS_AI_REASONING_API_KEY")
 	model := os.Getenv("OSS_AI_REASONING_MODEL")
 	if model == "" {
+		model = "deepseek/deepseek-r1"
+	}
+
+	if !isKnownReasoningModel(model) {
+		slog.Warn("unrecognised reasoning model, falling back to default",
+			"model", model, "default", "deepseek/deepseek-r1")
 		model = "deepseek/deepseek-r1"
 	}
 

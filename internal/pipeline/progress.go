@@ -5,6 +5,16 @@ import (
 	"sync"
 )
 
+// Progress status values passed to ProgressReporter.OnProgress.
+const (
+	StatusExtracting = "extracting" // Parsing source document
+	StatusChunking   = "chunking"   // Splitting into chunks
+	StatusGenerating = "generating" // AI generation in progress
+	StatusValidating = "validating" // Running schema/Bloom validation
+	StatusMerging    = "merging"    // Merging with existing content
+	StatusDone       = "done"       // Item complete
+)
+
 // ProgressReporter receives real-time updates during bulk import operations.
 // Implementations: NoopReporter (tests), CLIReporter (terminal), BotReporter (GitHub comment), SSEReporter (web).
 type ProgressReporter interface {

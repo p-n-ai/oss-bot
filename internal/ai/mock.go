@@ -47,10 +47,22 @@ func (m *MockProvider) Complete(ctx context.Context, _ CompletionRequest) (Compl
 	}, nil
 }
 
-func (m *MockProvider) StreamComplete(_ context.Context, _ CompletionRequest) (<-chan StreamChunk, error) {
+func (m *MockProvider) StreamComplete(ctx context.Context, _ CompletionRequest) (<-chan StreamChunk, error) {
 	ch := make(chan StreamChunk, 1)
 	go func() {
 		defer close(ch)
+		if m.Delay > 0 {
+			select {
+			case <-time.After(m.Delay):
+			case <-ctx.Done():
+				ch <- StreamChunk{Error: ctx.Err()}
+				return
+			}
+		}
+		if m.Err != nil {
+			ch <- StreamChunk{Error: m.Err}
+			return
+		}
 		ch <- StreamChunk{Content: m.Response, Done: true}
 	}()
 	return ch, nil

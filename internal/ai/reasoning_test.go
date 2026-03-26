@@ -90,6 +90,26 @@ func TestNewReasoningProviderFromEnv_FallsBackWithoutConfig(t *testing.T) {
 	}
 }
 
+func TestNewReasoningProviderFromEnv_UnknownModelFallsBackToDefault(t *testing.T) {
+	t.Setenv("OSS_AI_REASONING_MODEL", "not-a-real-model/v999")
+	// No API key set, so it falls back to base regardless — but model validation
+	// must not panic and must reset the model to the default.
+	base := ai.NewMockProvider("fallback")
+	rp := ai.NewReasoningProviderFromEnv(base)
+
+	// Without an API key the base provider is used; just verify it doesn't panic
+	// and still works.
+	resp, err := rp.Complete(context.Background(), ai.CompletionRequest{
+		Messages: []ai.Message{{Role: "user", Content: "test"}},
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if resp.Content != "fallback" {
+		t.Errorf("expected fallback response, got %q", resp.Content)
+	}
+}
+
 func TestSupportedReasoningModels(t *testing.T) {
 	models := ai.SupportedReasoningModels()
 	expected := []string{

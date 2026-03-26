@@ -168,6 +168,67 @@ func TestPipeline_FilesMapPopulated(t *testing.T) {
 	}
 }
 
+func TestPipeline_BloomValidationErrors_SurfacedInResult(t *testing.T) {
+	repoDir := setupPipelineTestRepoInvalidBloom(t)
+	mock := ai.NewMockProvider("# Teaching Notes\n\nContent.")
+
+	p := pipeline.New(mock, &output.LocalWriter{}, "prompts/", repoDir)
+	result, err := p.Execute(context.Background(), pipeline.Request{
+		TopicPath:        "F1-BAD",
+		ContributionType: "teaching_notes",
+		Mode:             pipeline.ModePreview,
+		Source:           "cli",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(result.ValidationErrors) == 0 {
+		t.Error("expected ValidationErrors for topic with invalid Bloom level")
+	}
+}
+
+func TestPipeline_BloomValidation_NoErrorsForValidTopic(t *testing.T) {
+	repoDir := setupPipelineTestRepo(t) // topic has bloom: understand (valid)
+	mock := ai.NewMockProvider("# Teaching Notes\n\nContent.")
+
+	p := pipeline.New(mock, &output.LocalWriter{}, "prompts/", repoDir)
+	result, err := p.Execute(context.Background(), pipeline.Request{
+		TopicPath:        "F1-01",
+		ContributionType: "teaching_notes",
+		Mode:             pipeline.ModePreview,
+		Source:           "cli",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(result.ValidationErrors) != 0 {
+		t.Errorf("expected no ValidationErrors for valid topic, got: %v", result.ValidationErrors)
+	}
+}
+
+func setupPipelineTestRepoInvalidBloom(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	topicsDir := filepath.Join(dir, "curricula", "test", "topics", "algebra")
+	os.MkdirAll(topicsDir, 0o755)
+	os.WriteFile(filepath.Join(topicsDir, "bad.yaml"), []byte(`
+id: F1-BAD
+name: "Bad Bloom Topic"
+subject_id: algebra
+syllabus_id: test-syllabus
+difficulty: beginner
+learning_objectives:
+  - id: LO1
+    text: "An objective"
+    bloom: think_hard_about_it
+prerequisites:
+  required: []
+quality_level: 1
+provenance: human
+`), 0o644)
+	return dir
+}
+
 func setupPipelineTestRepoWithNotes(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

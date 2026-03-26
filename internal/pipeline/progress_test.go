@@ -49,6 +49,23 @@ func TestCLIReporter_TrackErrors(t *testing.T) {
 	}
 }
 
+func TestStatusConstants_Defined(t *testing.T) {
+	// Ensure all status constants are non-empty strings.
+	constants := []string{
+		pipeline.StatusExtracting,
+		pipeline.StatusChunking,
+		pipeline.StatusGenerating,
+		pipeline.StatusValidating,
+		pipeline.StatusMerging,
+		pipeline.StatusDone,
+	}
+	for _, c := range constants {
+		if c == "" {
+			t.Errorf("status constant is empty")
+		}
+	}
+}
+
 func TestCLIReporter_OnComplete(t *testing.T) {
 	r := pipeline.NewCLIReporter()
 	r.OnStart(2)

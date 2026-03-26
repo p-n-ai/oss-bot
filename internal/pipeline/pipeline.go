@@ -12,6 +12,7 @@ import (
 	"github.com/p-n-ai/oss-bot/internal/ai"
 	"github.com/p-n-ai/oss-bot/internal/generator"
 	"github.com/p-n-ai/oss-bot/internal/output"
+	"github.com/p-n-ai/oss-bot/internal/validator"
 )
 
 // ExecutionMode determines what happens after content is generated and validated.
@@ -105,9 +106,13 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 		generated.Files = buildFilesMap(genCtx, req.ContributionType, generated.Content, p.repoPath)
 	}
 
+	// Validate Bloom levels declared on the topic's learning objectives.
+	bloomErrors := validator.ValidateBloomLevels(genLOsToValidatorLOs(genCtx.Topic.LearningObjectives))
+
 	result := &Result{
 		StructuredOutput: generated.Content,
 		Files:            generated.Files,
+		ValidationErrors: bloomErrors,
 	}
 
 	// 3. Merge with existing content when a reader is available
@@ -237,6 +242,15 @@ func buildFilesMap(genCtx *generator.GenerationContext, contribType, content, re
 	}
 
 	return map[string]string{filePath: content}
+}
+
+// genLOsToValidatorLOs converts generator learning objectives to the validator package type.
+func genLOsToValidatorLOs(los []generator.LearningObjective) []validator.LearningObjective {
+	out := make([]validator.LearningObjective, len(los))
+	for i, lo := range los {
+		out[i] = validator.LearningObjective{ID: lo.ID, Text: lo.Text, Bloom: lo.Bloom}
+	}
+	return out
 }
 
 func (p *Pipeline) generate(ctx context.Context, genCtx *generator.GenerationContext, req Request) (*generator.GenerationResult, error) {

@@ -71,6 +71,63 @@ func TestBloomLevel_CrossSubjectVerbs(t *testing.T) {
 	}
 }
 
+func TestValidateBloomLevels(t *testing.T) {
+	tests := []struct {
+		name       string
+		objectives []validator.LearningObjective
+		wantErrors int
+	}{
+		{
+			name: "all valid",
+			objectives: []validator.LearningObjective{
+				{ID: "LO1", Bloom: "understand"},
+				{ID: "LO2", Bloom: "apply"},
+				{ID: "LO3", Bloom: "analyze"},
+			},
+			wantErrors: 0,
+		},
+		{
+			name: "unrecognised level",
+			objectives: []validator.LearningObjective{
+				{ID: "LO1", Bloom: "understand"},
+				{ID: "LO2", Bloom: "think_hard"}, // not a valid level
+			},
+			wantErrors: 1,
+		},
+		{
+			name: "missing bloom level",
+			objectives: []validator.LearningObjective{
+				{ID: "LO1", Bloom: ""},
+			},
+			wantErrors: 1,
+		},
+		{
+			name:       "empty objectives",
+			objectives: nil,
+			wantErrors: 0,
+		},
+		{
+			name: "cross-subject verbs recognised",
+			objectives: []validator.LearningObjective{
+				{ID: "LO1", Bloom: "analyze"}, // used for hypothesize/predict
+				{ID: "LO2", Bloom: "create"},  // used for synthesize
+				{ID: "LO3", Bloom: "evaluate"}, // used for reflect
+			},
+			wantErrors: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validator.ValidateBloomLevels(tt.objectives)
+			if len(errs) != tt.wantErrors {
+				t.Errorf("ValidateBloomLevels() returned %d errors, want %d: %v",
+					len(errs), tt.wantErrors, errs)
+			}
+		})
+	}
+}
+
 func TestValidateBloomConsistency(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -73,6 +73,23 @@ func bloomRank(level string) int {
 	return -1
 }
 
+// ValidateBloomLevels checks that each learning objective declares a recognised
+// Bloom's taxonomy level. Returns one error string per invalid objective.
+func ValidateBloomLevels(objectives []LearningObjective) []string {
+	var errs []string
+	for _, o := range objectives {
+		if o.Bloom == "" {
+			errs = append(errs, "learning objective "+o.ID+" has no bloom level set")
+			continue
+		}
+		if bloomRank(o.Bloom) < 0 {
+			errs = append(errs, "learning objective "+o.ID+
+				" has unrecognised bloom level: "+o.Bloom)
+		}
+	}
+	return errs
+}
+
 // ValidateBloomConsistency checks that assessment questions don't exceed
 // the Bloom's level of their referenced learning objective.
 func ValidateBloomConsistency(objectives []LearningObjective, questions []AssessmentQuestion) []string {
