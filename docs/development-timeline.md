@@ -128,10 +128,11 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W5D24-1` | `internal/parser/chunker.go` — split large documents into processable chunks by chapter/heading boundaries. Handles 100+ page PDFs within AI token limits. Chunk-level caching for retry resilience. | 🤖 | ⬜ | New: large doc support |
-| `B-W5D24-2` | `internal/pipeline/bulk.go` — bulk import orchestrator: `oss import --file textbook.pdf --syllabus india-jee --subject chemistry-11`. Extracts text → chunks → AI identifies topics per chunk → generates syllabus.yaml + subject.yaml + N topic files + teaching notes + assessments. Uses reasoning model for structure extraction. | 🤖 | ⬜ | New: multi-topic extraction |
-| `B-W5D24-3` | `internal/ai/reasoning.go` — reasoning model provider (Kimi K2.5 / Qwen 3.5 / OpenAI o3-mini) for complex tasks: bulk import structure analysis, content merge decisions, cross-topic prerequisite mapping. Falls back to standard provider if unavailable. | 🤖 | ⬜ | New: reasoning model support |
-| `B-W5D24-4` | Extend `internal/validator/bloom.go` — add cross-subject Bloom verbs: science (predict, hypothesize, synthesize, observe, experiment), humanities (interpret, critique, contextualize), general (research, collaborate, present) | 🤖 | ⬜ | New: multi-subject support |
-| `B-W5D24-5` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts | 🤖 | ⬜ | Moved from previous Day 24 |
+| `B-W5D24-2` | `internal/pipeline/progress.go` — `ProgressReporter` interface with stages: extracting (%), chunking (%), analyzing structure, generating topic N/M, validating, writing. Implementations: CLI (terminal progress bar), Bot (edit GitHub comment with status), Web (SSE stream). All interfaces show real-time progress for long-running operations. | 🤖 | ⬜ | New: progress reporting |
+| `B-W5D24-3` | `internal/pipeline/bulk.go` — bulk import orchestrator with **parallel agent workers**: chunks are analyzed sequentially (structure extraction needs full context), but topic generation runs concurrently via configurable worker pool (`OSS_WORKER_COUNT`, default 3). Each worker is an independent AI agent processing one topic. Progress reported per-topic. Handles: `oss import --file textbook.pdf --syllabus india-jee --subject chemistry-11` → generates syllabus.yaml + subject.yaml + N topic files + content. | 🤖 | ⬜ | New: multi-agent parallel processing |
+| `B-W5D24-4` | `internal/ai/reasoning.go` — reasoning model provider (Kimi K2.5 / Qwen 3.5 / OpenAI o3-mini) for complex tasks: bulk import structure analysis, content merge decisions, cross-topic prerequisite mapping. Falls back to standard provider if unavailable. | 🤖 | ⬜ | New: reasoning model support |
+| `B-W5D24-5` | Extend `internal/validator/bloom.go` — add cross-subject Bloom verbs: science (predict, hypothesize, synthesize, observe, experiment), humanities (interpret, critique, contextualize), general (research, collaborate, present) | 🤖 | ⬜ | New: multi-subject support |
+| `B-W5D24-6` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts | 🤖 | ⬜ | Moved from previous Day 24 |
 
 ### Day 25 (Fri) — Bot Commands + Docker + Testing
 
@@ -161,6 +162,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W6D26-1` | Scaffold `web/`: Next.js 15 + TypeScript + shadcn/ui + Tailwind | 🤖 | ⬜ | |
 | `B-W6D26-2` | Contribution form: Select curriculum (or create new) → Select topic (or import) → Contribution type → Three input methods: paste URL, type/paste text, or upload file (PDF, DOCX, PPTX, TXT, image) | 🤖 | ⬜ | Updated: supports new curriculum creation |
 | `B-W6D26-3` | `POST /api/preview` — calls shared `pipeline.Execute(ModePreview)`, returns structured YAML. `POST /api/submit` — calls `pipeline.Execute(ModeCreatePR)`. Both delegate to the same pipeline as CLI and Bot. | 🤖 | ⬜ | |
+| `B-W6D26-4` | `GET /api/progress/:jobId` — SSE (Server-Sent Events) endpoint streaming real-time progress from `ProgressReporter`. Web frontend shows: upload %, extraction %, "Analyzing structure...", "Generating topic 3/12...", "Validating...", "Done". | 🤖 | ⬜ | New: progress streaming |
 
 ### Day 27 (Tue) — Submit + Preview Flow
 
@@ -204,9 +206,9 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 |------|----------------|----------|-------|--------|
 | 1-3 | 0 | 0 | 0 (no oss-bot work) | — |
 | 4 | 18 | 2 | 20 | ✅ Complete (Days 16-20) |
-| 5 | 30 | 2 | 32 | ⬜ Next (Days 21-25, rebalanced + new scenarios) |
-| 6 | 12 | 2 | 14 | ⬜ (Days 26-30, updated for multi-country) |
-| **Total** | **60** | **6** | **66** |
+| 5 | 32 | 2 | 34 | ⬜ Next (Days 21-25, rebalanced + new scenarios) |
+| 6 | 13 | 2 | 15 | ⬜ (Days 26-30, updated for multi-country + progress UI) |
+| **Total** | **63** | **6** | **69** |
 
 ---
 
