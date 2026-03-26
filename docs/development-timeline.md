@@ -114,18 +114,19 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D23-1` | `internal/generator/scaffolder.go` — `oss scaffold syllabus` (create `curricula/{country}/{syllabus}/syllabus.yaml`) and `oss scaffold subject` (create subject YAML + topics directory). Supports creating entirely new curricula from scratch. | 🤖 | ⬜ | New: global OSS support |
-| `B-W5D23-2` | Create `prompts/document_import.md` — extract curriculum structure from documents and web pages, infer Bloom's levels from verbs, map prerequisites. Subject-agnostic (works for math, science, humanities). | 🤖 | ⬜ | |
-| `B-W5D23-3` | Create `prompts/bulk_import.md` — for large documents: identify chapter/section boundaries, extract multiple topics with their learning objectives, generate full syllabus structure. Uses reasoning model for complex analysis. | 🤖 | ⬜ | New: bulk import prompt |
-| `B-W5D23-4` | `internal/parser/document.go` — `ContentExtractor` interface (URL, file, text) shared by CLI and server | 🤖 | ⬜ | |
-| `B-W5D23-5` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 | ⬜ | |
-| `B-W5D23-6` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT) | 🤖 | ⬜ | |
-| `B-W5D23-7` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content, pass to AI pipeline | 🤖 | ⬜ | |
-| `B-W5D23-11` | Fix pipeline file map: populate `GenerationResult.Files` after generation using `genCtx.TopicDir` + topic file fields (`ai_teaching_notes`, `assessments_file`, `examples_file`). Fixes `ModeWriteFS` writing nothing and `ModeCreatePR` committing nothing. Add `buildFilesMap()` to `internal/pipeline/pipeline.go`. | 🤖 | ⬜ | Gap from Day 22: Files map always nil |
+| `B-W5D23-1` | `internal/generator/scaffolder.go` — `oss scaffold syllabus` (create `curricula/{country}/{syllabus}/syllabus.yaml`) and `oss scaffold subject` (create subject YAML + topics directory). Supports creating entirely new curricula from scratch. | 🤖 | ✅ | New: global OSS support |
+| `B-W5D23-2` | Create `prompts/document_import.md` — extract curriculum structure from documents and web pages, infer Bloom's levels from verbs, map prerequisites. Subject-agnostic (works for math, science, humanities). | 🤖 | ✅ | |
+| `B-W5D23-3` | Create `prompts/bulk_import.md` — for large documents: identify chapter/section boundaries, extract multiple topics with their learning objectives, generate full syllabus structure. Uses reasoning model for complex analysis. | 🤖 | ✅ | New: bulk import prompt |
+| `B-W5D23-4` | `internal/parser/document.go` — `ContentExtractor` interface (URL, file, text) shared by CLI and server | 🤖 | ✅ | |
+| `B-W5D23-5` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 | ✅ | Stub implementation; ledongthuc/pdf integration deferred |
+| `B-W5D23-6` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT) | 🤖 | ✅ | Implemented via direct REST calls to avoid google/go-tika dependency |
+| `B-W5D23-7` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content, pass to AI pipeline | 🤖 | ✅ | HTML text extraction via stdlib (no external deps) |
+| `B-W5D23-11` | Fix pipeline file map: populate `GenerationResult.Files` after generation using `genCtx.TopicDir` + topic file fields (`ai_teaching_notes`, `assessments_file`, `examples_file`). Fixes `ModeWriteFS` writing nothing and `ModeCreatePR` committing nothing. Add `buildFilesMap()` to `internal/pipeline/pipeline.go`. | 🤖 | ✅ | Gap from Day 22: Files map always nil |
 
 ### Day 24 (Thu) — Bulk Import + Large Document Processing
 
 > **Updated (2026-03-27):** Dedicated day for large document handling (100-page PDFs, textbooks, DSKP documents). This is the core scenario for bootstrapping a new country's curriculum.
+> **Scope decision (2026-03-27):** The implementation guide's Day 24 also includes a contribution parser (`internal/parser/contribution.go`) and feedback API (`internal/api/feedback.go`) not present in this updated timeline. These are **deferred** — they do not appear in the timeline tasks and are not required for the bulk import flow. They will be scheduled separately if needed.
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
@@ -134,7 +135,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D24-3` | `internal/pipeline/bulk.go` — bulk import orchestrator with **parallel agent workers**: chunks are analyzed sequentially (structure extraction needs full context), but topic generation runs concurrently via configurable worker pool (`OSS_WORKER_COUNT`, default 3). Each worker is an independent AI agent processing one topic. Progress reported per-topic. Handles: `oss import --file textbook.pdf --syllabus india-jee --subject chemistry-11` → generates syllabus.yaml + subject.yaml + N topic files + content. | 🤖 | ⬜ | New: multi-agent parallel processing |
 | `B-W5D24-4` | `internal/ai/reasoning.go` — reasoning model provider via OpenRouter (single OpenAI-compatible API gateway routing to DeepSeek R1, Kimi K2.5, Qwen 3.5, o3-mini, etc.) for complex tasks: bulk import structure analysis, content merge decisions, cross-topic prerequisite mapping. Falls back to standard provider if unavailable. Config: `OSS_AI_REASONING_PROVIDER=openrouter`, `OSS_AI_REASONING_MODEL=deepseek/deepseek-r1`. | 🤖 | ⬜ | New: reasoning model support via OpenRouter |
 | `B-W5D24-5` | Extend `internal/validator/bloom.go` — add cross-subject Bloom verbs: science (predict, hypothesize, synthesize, observe, experiment), humanities (interpret, critique, contextualize), general (research, collaborate, present) | 🤖 | ⬜ | New: multi-subject support |
-| `B-W5D24-6` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts | 🤖 | ⬜ | Moved from previous Day 24 |
+| `B-W5D24-6` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts | 🤖 | ✅ | Completed in Day 23; OCR stubbed pending Tesseract binary, AI Vision wired via ai.Provider |
 
 ### Day 25 (Fri) — GitHub API Client + Bot Commands + Docker + Testing
 

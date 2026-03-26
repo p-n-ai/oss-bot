@@ -31,6 +31,7 @@ generate AI-powered teaching content, import from PDFs, and translate topics.`,
 	rootCmd.AddCommand(generateCmd())
 	rootCmd.AddCommand(qualityCmd())
 	rootCmd.AddCommand(translateCmd())
+	rootCmd.AddCommand(scaffoldCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -315,6 +316,140 @@ func runGenerate(contributionType string) func(cmd *cobra.Command, args []string
 		}
 		return nil
 	}
+}
+
+func scaffoldCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "scaffold",
+		Short: "Scaffold new syllabus or subject directory structure",
+	}
+	cmd.AddCommand(scaffoldSyllabusCmd())
+	cmd.AddCommand(scaffoldSubjectCmd())
+	return cmd
+}
+
+func scaffoldSyllabusCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "syllabus",
+		Short: "Create a new syllabus directory from a curriculum document or URL",
+		RunE:  runScaffoldSyllabus,
+	}
+	cmd.Flags().String("id", "", "Syllabus ID (required, e.g. india-jee)")
+	cmd.Flags().String("country", "", "Country code (e.g. india)")
+	cmd.Flags().String("from-file", "", "Path to curriculum document (PDF, DOCX, TXT)")
+	cmd.Flags().String("from-url", "", "URL of curriculum specification page")
+	cmd.Flags().String("from-text", "", "Curriculum description text")
+	cmd.MarkFlagRequired("id")
+	return cmd
+}
+
+func scaffoldSubjectCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "subject",
+		Short: "Create a new subject directory within an existing syllabus",
+		RunE:  runScaffoldSubject,
+	}
+	cmd.Flags().String("syllabus", "", "Syllabus ID (required)")
+	cmd.Flags().String("id", "", "Subject ID (required, e.g. mathematics)")
+	cmd.Flags().String("country", "", "Country code (e.g. india)")
+	cmd.Flags().String("from-file", "", "Path to subject document")
+	cmd.Flags().String("from-url", "", "URL of subject specification page")
+	cmd.Flags().String("from-text", "", "Subject description text")
+	cmd.MarkFlagRequired("syllabus")
+	cmd.MarkFlagRequired("id")
+	return cmd
+}
+
+func runScaffoldSyllabus(cmd *cobra.Command, _ []string) error {
+	syllabusID, _ := cmd.Flags().GetString("id")
+	country, _ := cmd.Flags().GetString("country")
+	fromFile, _ := cmd.Flags().GetString("from-file")
+	fromText, _ := cmd.Flags().GetString("from-text")
+	outputDir := os.Getenv("OSS_REPO_PATH")
+	if outputDir == "" {
+		outputDir = "."
+	}
+
+	sourceText, err := resolveSourceText(fromFile, fromText)
+	if err != nil {
+		return err
+	}
+
+	provider, _ := createAIProvider() // Optional; scaffolder works without AI
+
+	s := generator.NewScaffolder(provider)
+	result, err := s.ScaffoldSyllabus(context.Background(), generator.ScaffoldRequest{
+		SyllabusID: syllabusID,
+		Country:    country,
+		SourceText: sourceText,
+		OutputDir:  outputDir,
+	})
+	if err != nil {
+		return fmt.Errorf("scaffolding syllabus: %w", err)
+	}
+
+	if err := s.WriteFiles(result, outputDir); err != nil {
+		return fmt.Errorf("writing scaffold files: %w", err)
+	}
+
+	fmt.Println(result.Summary)
+	for path := range result.Files {
+		fmt.Printf("  created: %s\n", filepath.Join(outputDir, path))
+	}
+	return nil
+}
+
+func runScaffoldSubject(cmd *cobra.Command, _ []string) error {
+	syllabusID, _ := cmd.Flags().GetString("syllabus")
+	subjectID, _ := cmd.Flags().GetString("id")
+	country, _ := cmd.Flags().GetString("country")
+	fromFile, _ := cmd.Flags().GetString("from-file")
+	fromText, _ := cmd.Flags().GetString("from-text")
+	outputDir := os.Getenv("OSS_REPO_PATH")
+	if outputDir == "" {
+		outputDir = "."
+	}
+
+	sourceText, err := resolveSourceText(fromFile, fromText)
+	if err != nil {
+		return err
+	}
+
+	provider, _ := createAIProvider() // Optional
+
+	s := generator.NewScaffolder(provider)
+	result, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{
+		SyllabusID: syllabusID,
+		SubjectID:  subjectID,
+		Country:    country,
+		SourceText: sourceText,
+		OutputDir:  outputDir,
+	})
+	if err != nil {
+		return fmt.Errorf("scaffolding subject: %w", err)
+	}
+
+	if err := s.WriteFiles(result, outputDir); err != nil {
+		return fmt.Errorf("writing scaffold files: %w", err)
+	}
+
+	fmt.Println(result.Summary)
+	for path := range result.Files {
+		fmt.Printf("  created: %s\n", filepath.Join(outputDir, path))
+	}
+	return nil
+}
+
+// resolveSourceText reads text from a file path or returns the provided text directly.
+func resolveSourceText(fromFile, fromText string) (string, error) {
+	if fromFile != "" {
+		data, err := os.ReadFile(fromFile)
+		if err != nil {
+			return "", fmt.Errorf("reading file %s: %w", fromFile, err)
+		}
+		return string(data), nil
+	}
+	return fromText, nil
 }
 
 // createAIProvider creates an AI provider from environment variables.

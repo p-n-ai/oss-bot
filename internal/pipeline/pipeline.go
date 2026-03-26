@@ -100,6 +100,11 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 		return nil, fmt.Errorf("generating content: %w", err)
 	}
 
+	// Populate Files map if the generator did not set it.
+	if len(generated.Files) == 0 && generated.Content != "" {
+		generated.Files = buildFilesMap(genCtx, req.ContributionType, generated.Content, p.repoPath)
+	}
+
 	result := &Result{
 		StructuredOutput: generated.Content,
 		Files:            generated.Files,
@@ -205,6 +210,33 @@ func (p *Pipeline) mergeWithExisting(
 	}
 
 	return generated, nil, nil
+}
+
+// buildFilesMap constructs the repo-relative file path → content map for
+// generated content. Uses the topic's file reference fields and TopicDir.
+// Returns nil if the topic has no file reference configured for contribType.
+func buildFilesMap(genCtx *generator.GenerationContext, contribType, content, repoPath string) map[string]string {
+	var fileName string
+	switch contribType {
+	case "teaching_notes":
+		fileName = genCtx.Topic.TeachingNotesFile
+	case "assessments":
+		fileName = genCtx.Topic.AssessmentsFile
+	case "examples":
+		fileName = genCtx.Topic.ExamplesFile
+	}
+	if fileName == "" {
+		return nil
+	}
+
+	filePath := fileName
+	if repoPath != "" && genCtx.TopicDir != "" {
+		if relDir, err := filepath.Rel(repoPath, genCtx.TopicDir); err == nil {
+			filePath = filepath.Join(relDir, fileName)
+		}
+	}
+
+	return map[string]string{filePath: content}
 }
 
 func (p *Pipeline) generate(ctx context.Context, genCtx *generator.GenerationContext, req Request) (*generator.GenerationResult, error) {

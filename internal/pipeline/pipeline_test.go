@@ -140,6 +140,34 @@ func TestPipeline_MergeNoExistingFile(t *testing.T) {
 	}
 }
 
+func TestPipeline_FilesMapPopulated(t *testing.T) {
+	repoDir := setupPipelineTestRepoWithNotes(t) // topic has ai_teaching_notes set
+	mock := ai.NewMockProvider("# Teaching Notes\n\nGenerated content.")
+
+	p := pipeline.New(mock, &output.LocalWriter{}, "prompts/", repoDir)
+
+	result, err := p.Execute(context.Background(), pipeline.Request{
+		TopicPath:        "F1-01",
+		ContributionType: "teaching_notes",
+		Mode:             pipeline.ModePreview,
+		Source:           "cli",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(result.Files) == 0 {
+		t.Error("Files map should be populated after generation when topic has ai_teaching_notes set")
+	}
+	for path, content := range result.Files {
+		if path == "" {
+			t.Error("file path must not be empty")
+		}
+		if content == "" {
+			t.Error("file content must not be empty")
+		}
+	}
+}
+
 func setupPipelineTestRepoWithNotes(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
