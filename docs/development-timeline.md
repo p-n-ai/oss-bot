@@ -107,39 +107,48 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D22-5` | Bot command flow: parse `@oss-bot` comment → call shared `pipeline.Execute(ModeCreatePR)` → react to comment with PR link | 🤖 | ⬜ | |
 | `B-W5D22-6` | Bot responds to issue with PR link: "I've generated teaching notes for F2-01 and opened #PR. Please review for accuracy." | 🤖 | ⬜ | |
 
-### Day 23 (Wed) — Document Import (PDF, URL, Tika)
+### Day 23 (Wed) — Scaffolding + Document Import (PDF, URL, Tika)
+
+> **Updated (2026-03-27):** Expanded scaffolder to handle new syllabus/subject creation from scratch. Added large document chunking. These are required for the global OSS use case (any country, any subject).
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D23-1` | Create `prompts/document_import.md` — extract curriculum structure from documents and web pages, infer Bloom's levels from verbs, map prerequisites | 🤖 | ⬜ | |
-| `B-W5D23-2` | `internal/parser/document.go` — `ContentExtractor` interface (URL, file, text) shared by CLI and server | 🤖 | ⬜ | |
-| `B-W5D23-3` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 | ⬜ | |
-| `B-W5D23-4` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT) | 🤖 | ⬜ | |
-| `B-W5D23-5` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content, pass to AI pipeline | 🤖 | ⬜ | |
-| `B-W5D23-6` | `internal/generator/scaffolder.go` — `oss import --url <url>` / `oss import --file <path>` → generate full syllabus scaffold | 🤖 | ⬜ | |
+| `B-W5D23-1` | `internal/generator/scaffolder.go` — `oss scaffold syllabus` (create `curricula/{country}/{syllabus}/syllabus.yaml`) and `oss scaffold subject` (create subject YAML + topics directory). Supports creating entirely new curricula from scratch. | 🤖 | ⬜ | New: global OSS support |
+| `B-W5D23-2` | Create `prompts/document_import.md` — extract curriculum structure from documents and web pages, infer Bloom's levels from verbs, map prerequisites. Subject-agnostic (works for math, science, humanities). | 🤖 | ⬜ | |
+| `B-W5D23-3` | Create `prompts/bulk_import.md` — for large documents: identify chapter/section boundaries, extract multiple topics with their learning objectives, generate full syllabus structure. Uses reasoning model for complex analysis. | 🤖 | ⬜ | New: bulk import prompt |
+| `B-W5D23-4` | `internal/parser/document.go` — `ContentExtractor` interface (URL, file, text) shared by CLI and server | 🤖 | ⬜ | |
+| `B-W5D23-5` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 | ⬜ | |
+| `B-W5D23-6` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT) | 🤖 | ⬜ | |
+| `B-W5D23-7` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content, pass to AI pipeline | 🤖 | ⬜ | |
 
-### Day 24 (Thu) — Image Extraction + Bot Quality Command
+### Day 24 (Thu) — Bulk Import + Large Document Processing
 
-| Task ID | Task | Owner | Status | Remark |
-|---------|------|-------|--------|--------|
-| `B-W5D24-1` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts. Auto-detection with `--vision` override. | 🤖 | ⬜ | Moved from Day 23 |
-| `B-W5D24-2` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | Moved from Day 23 |
-| `B-W5D24-3` | Create `prompts/contribution_parser.md` — parse natural language teacher input into structured YAML, preserve teacher's voice | 🤖 | ⬜ | Moved from Day 24 |
-| `B-W5D24-4` | `internal/parser/contribution.go` — teacher writes "My students always confuse the negative sign when expanding brackets" → structured misconception entry | 🤖 | ⬜ | Moved from Day 24 |
-
-### Day 25 (Fri) — Feedback API + Docker + Testing
+> **Updated (2026-03-27):** Dedicated day for large document handling (100-page PDFs, textbooks, DSKP documents). This is the core scenario for bootstrapping a new country's curriculum.
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D25-1` | `POST /api/feedback` — endpoint for pai-bot to submit observed patterns (misconception frequency, explanation effectiveness) | 🤖 | ⬜ | Moved from Day 24 |
-| `B-W5D25-2` | Feedback handler: receive structured feedback → run generation pipeline → create PR with provenance:ai-observed label | 🤖 | ⬜ | Moved from Day 24 |
-| `B-W5D25-3` | Dockerfile: multi-stage Go build for both CLI binary and bot server | 🤖 | ⬜ | |
-| `B-W5D25-4` | `docker-compose.yml`: bot server + Apache Tika sidecar + webhook tunnel (for dev) | 🤖 | ⬜ | |
-| `B-W5D25-5` | README.md: CLI installation (go install + pre-built binaries), GitHub App setup, bot deployment | 🤖 | ⬜ | |
-| `B-W5D25-6` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | |
-| `B-W5D25-7` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ⬜ | |
+| `B-W5D24-1` | `internal/parser/chunker.go` — split large documents into processable chunks by chapter/heading boundaries. Handles 100+ page PDFs within AI token limits. Chunk-level caching for retry resilience. | 🤖 | ⬜ | New: large doc support |
+| `B-W5D24-2` | `internal/pipeline/bulk.go` — bulk import orchestrator: `oss import --file textbook.pdf --syllabus india-jee --subject chemistry-11`. Extracts text → chunks → AI identifies topics per chunk → generates syllabus.yaml + subject.yaml + N topic files + teaching notes + assessments. Uses reasoning model for structure extraction. | 🤖 | ⬜ | New: multi-topic extraction |
+| `B-W5D24-3` | `internal/ai/reasoning.go` — reasoning model provider (Kimi K2.5 / Qwen 3.5 / OpenAI o3-mini) for complex tasks: bulk import structure analysis, content merge decisions, cross-topic prerequisite mapping. Falls back to standard provider if unavailable. | 🤖 | ⬜ | New: reasoning model support |
+| `B-W5D24-4` | Extend `internal/validator/bloom.go` — add cross-subject Bloom verbs: science (predict, hypothesize, synthesize, observe, experiment), humanities (interpret, critique, contextualize), general (research, collaborate, present) | 🤖 | ⬜ | New: multi-subject support |
+| `B-W5D24-5` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts | 🤖 | ⬜ | Moved from previous Day 24 |
 
-**Week 5 Output:** Working GitHub bot that generates content and opens PRs with intelligent content merging (additive by default). Three input methods across all interfaces: URL import (web page fetching), file upload (PDF, DOCX, PPTX, TXT, images with OCR + AI Vision), and text (natural language). CLI with validate/generate/translate/import. Server with multi-format extraction via Apache Tika. Feedback API for pai-bot.
+### Day 25 (Fri) — Bot Commands + Docker + Testing
+
+| Task ID | Task | Owner | Status | Remark |
+|---------|------|-------|--------|--------|
+| `B-W5D25-1` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | |
+| `B-W5D25-2` | Create `prompts/contribution_parser.md` — parse natural language teacher input into structured YAML, preserve teacher's voice | 🤖 | ⬜ | |
+| `B-W5D25-3` | `internal/parser/contribution.go` — teacher writes "My students always confuse the negative sign when expanding brackets" → structured misconception entry | 🤖 | ⬜ | |
+| `B-W5D25-4` | `POST /api/feedback` — endpoint for pai-bot to submit observed patterns (misconception frequency, explanation effectiveness) | 🤖 | ⬜ | |
+| `B-W5D25-5` | Feedback handler: receive structured feedback → run generation pipeline → create PR with provenance:ai-observed label | 🤖 | ⬜ | |
+| `B-W5D25-6` | Dockerfile: multi-stage Go build for both CLI binary and bot server | 🤖 | ⬜ | |
+| `B-W5D25-7` | `docker-compose.yml`: bot server + Apache Tika sidecar + webhook tunnel (for dev) | 🤖 | ⬜ | |
+| `B-W5D25-8` | README.md: CLI installation (go install + pre-built binaries), GitHub App setup, bot deployment | 🤖 | ⬜ | |
+| `B-W5D25-9` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | |
+| `B-W5D25-10` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ⬜ | |
+
+**Week 5 Output:** Working GitHub bot that generates content and opens PRs with intelligent content merging (additive by default). Scaffolding for new countries/syllabi/subjects. Bulk import from large documents (100-page PDFs, textbooks, DSKP). Reasoning model integration for complex analysis. Three input methods: URL import, file upload (PDF, DOCX, PPTX, TXT, images with OCR + AI Vision), and text (natural language). Multi-subject Bloom's taxonomy. Feedback API for pai-bot.
 
 ---
 
@@ -149,8 +158,8 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W6D26-1` | Scaffold `web/`: Next.js 14 + TypeScript + shadcn/ui + Tailwind | 🤖 | ⬜ | |
-| `B-W6D26-2` | Contribution form: Select topic → Contribution type → Three input methods: paste URL, type/paste text, or upload file (PDF, DOCX, PPTX, TXT, image) | 🤖 | ⬜ | |
+| `B-W6D26-1` | Scaffold `web/`: Next.js 15 + TypeScript + shadcn/ui + Tailwind | 🤖 | ⬜ | |
+| `B-W6D26-2` | Contribution form: Select curriculum (or create new) → Select topic (or import) → Contribution type → Three input methods: paste URL, type/paste text, or upload file (PDF, DOCX, PPTX, TXT, image) | 🤖 | ⬜ | Updated: supports new curriculum creation |
 | `B-W6D26-3` | `POST /api/preview` — calls shared `pipeline.Execute(ModePreview)`, returns structured YAML. `POST /api/submit` — calls `pipeline.Execute(ModeCreatePR)`. Both delegate to the same pipeline as CLI and Bot. | 🤖 | ⬜ | |
 
 ### Day 27 (Tue) — Submit + Preview Flow
@@ -160,13 +169,14 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W6D27-1` | Preview component: show structured output with syntax highlighting, diff against existing content | 🤖 | ⬜ | |
 | `B-W6D27-2` | `POST /api/submit` — on confirmation, create GitHub PR with attribution to the contributor | 🤖 | ⬜ | |
 | `B-W6D27-3` | Real-time schema validation in preview: show green checkmarks for valid fields, red for issues | 🤖 | ⬜ | |
+| `B-W6D27-4` | Bulk import progress UI: upload large PDF → show chunking progress → topic-by-topic generation status → final preview of all generated files | 🤖 | ⬜ | New: bulk import UX |
 
 ### Day 28 (Wed) — Curricula Browser
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W6D28-1` | `GET /api/curricula` — list all syllabi, subjects, topics from the oss repo | 🤖 | ⬜ | |
-| `B-W6D28-2` | Browse page: tree view of KSSM → Form 1/2/3 → Subject → Topic. Quality level badges. "Contribute" button per topic. | 🤖 | ⬜ | |
+| `B-W6D28-1` | `GET /api/curricula` — list all syllabi, subjects, topics from the oss repo. Supports all countries. | 🤖 | ⬜ | |
+| `B-W6D28-2` | Browse page: tree view of Country → Syllabus → Subject → Topic. Quality level badges. "Contribute" button per topic. "Add new curriculum" button. | 🤖 | ⬜ | Updated: multi-country |
 | `B-W6D28-3` | Topic detail page: show existing content (teaching notes, examples, assessments) with "Improve this" buttons | 🤖 | ⬜ | |
 
 ### Day 29 (Thu) — Deploy + Documentation
@@ -174,7 +184,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W6D29-1` | Deploy bot + web portal: Docker on VPS, configure GitHub App webhook URL | 🤖 | ⬜ | |
-| `B-W6D29-2` | CONTRIBUTING.md: 3 ways to contribute (web form, @oss-bot, CLI), screenshot walkthrough | 🤖 | ⬜ | |
+| `B-W6D29-2` | CONTRIBUTING.md: 3 ways to contribute (web form, @oss-bot, CLI), screenshot walkthrough. Includes "How to add a new country's curriculum" guide. | 🤖 | ⬜ | Updated: new curriculum guide |
 | `B-W6D29-3` | 🧑 Test web portal with 2 teachers: can they contribute without knowing Git? | 🧑 Education Lead | ⬜ | |
 
 ### Day 30 (Fri) — Launch + Report
@@ -182,9 +192,9 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W6D30-1` | 🧑 Announce web portal in launch materials: "contribute.p-n-ai.org — teachers can contribute without Git" | 🧑 Human | ⬜ | |
-| `B-W6D30-2` | 🧑 Write oss-bot section of 6-week report: AI generation quality, bot PRs created, web portal usage | 🧑 Human | ⬜ | |
+| `B-W6D30-2` | 🧑 Write oss-bot section of 6-week report: AI generation quality, bot PRs created, web portal usage, curricula onboarded | 🧑 Human | ⬜ | |
 
-**Week 6 Output:** Web portal live at contribute.p-n-ai.org. GitHub bot responding to @oss-bot. CLI distributed as pre-built binary.
+**Week 6 Output:** Web portal live at contribute.p-n-ai.org with multi-country curriculum support, bulk import UI, and new curriculum creation flow. GitHub bot responding to @oss-bot. CLI distributed as pre-built binary.
 
 ---
 
@@ -194,9 +204,23 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 |------|----------------|----------|-------|--------|
 | 1-3 | 0 | 0 | 0 (no oss-bot work) | — |
 | 4 | 18 | 2 | 20 | ✅ Complete (Days 16-20) |
-| 5 | 26 | 2 | 28 | ⬜ Next (Days 21-25, rebalanced) |
-| 6 | 10 | 2 | 12 | ⬜ (Days 26-30) |
-| **Total** | **54** | **6** | **60** |
+| 5 | 30 | 2 | 32 | ⬜ Next (Days 21-25, rebalanced + new scenarios) |
+| 6 | 12 | 2 | 14 | ⬜ (Days 26-30, updated for multi-country) |
+| **Total** | **60** | **6** | **66** |
+
+---
+
+## AI Model Strategy
+
+> **Added (2026-03-27):** Different tasks require different model capabilities.
+
+| Task Type | Model Tier | Examples | Candidates |
+|-----------|-----------|----------|------------|
+| **Standard generation** | Fast, affordable | Teaching notes, assessments, examples, translation | GPT-4o, Claude Sonnet 4, Llama 3 |
+| **Complex reasoning** | Advanced reasoning | Bulk import structure extraction, content merge decisions, cross-topic prerequisite mapping, large document analysis | Kimi K2.5, Qwen 3.5, OpenAI o3-mini, Claude Opus |
+| **Vision** | Multimodal | Handwriting OCR, diagram extraction, complex layouts | GPT-4o Vision, Claude Vision |
+
+The `internal/ai/reasoning.go` provider (Day 24) will support routing to reasoning models. Config via `OSS_AI_REASONING_PROVIDER` and `OSS_AI_REASONING_API_KEY` environment variables.
 
 ---
 
@@ -208,6 +232,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Teaching notes generation | <15s |
 | Assessment generation (5 questions) | <10s |
 | PDF import, CLI (50-page syllabus) | <60s |
+| Bulk import (100-page document) | <5min |
 | URL import (fetch + extract) | <30s |
 | Document import, server (50-page, any format) | <90s |
 | Image extraction (OCR) | <5s |
