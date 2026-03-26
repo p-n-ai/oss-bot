@@ -57,7 +57,22 @@ For each day:
 2. Check **entry criteria** in the implementation guide before starting
 3. Follow the TDD workflow (see below) for each task
 4. Run **validation commands** from the implementation guide
-5. Verify all **exit criteria** checkboxes before moving to the next day
+5. Update task status in `docs/development-timeline.md` (see below)
+6. Verify all **exit criteria** checkboxes before moving to the next day
+
+### Updating Task Status
+
+Each task row in `docs/development-timeline.md` follows this format:
+
+| Column | Description |
+|--------|-------------|
+| Task ID | e.g. `B-W4D16-1` — do not modify |
+| Task | Task description — do not modify |
+| Owner | `🤖` or `🧑` — do not modify |
+| Status | `⬜` = not started, `✅` = completed |
+| Remark | Add any notes (e.g. deviations, blockers, decisions made) |
+
+Mark each task's Status as `✅` immediately upon completion. Use the Remark column for context when relevant.
 
 ## 5. Rules for Coding Agents
 

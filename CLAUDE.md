@@ -229,6 +229,20 @@ Workflow for each day:
 5. Run **validation commands** from the guide
 6. Verify all **exit criteria** checkboxes before moving to the next day
 
+### Updating Task Status in the Timeline
+
+When completing tasks, update the corresponding row in `docs/development-timeline.md`:
+
+| Column | Description |
+|--------|-------------|
+| Task ID | e.g. `B-W4D16-1` — do not modify |
+| Task | Task description — do not modify |
+| Owner | `🤖` or `🧑` — do not modify |
+| Status | `⬜` = not started, `✅` = completed |
+| Remark | Add any notes (e.g. deviations, blockers, decisions made) |
+
+Mark each task's Status as `✅` as soon as it is done. Add context in the Remark column when relevant.
+
 ### Test-Driven Development (TDD)
 This project follows a strict test-first approach. Every feature goes through this cycle:
 
