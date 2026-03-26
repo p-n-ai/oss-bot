@@ -90,11 +90,11 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D21-1` | `internal/github/app.go` — GitHub App authentication (JWT from private key, installation token exchange) | 🤖 | ⬜ | |
-| `B-W5D21-2` | `internal/github/webhook.go` — webhook handler: verify HMAC signature, parse issue_comment events, extract @oss-bot commands | 🤖 | ⬜ | |
-| `B-W5D21-3` | `internal/parser/command.go` — parse bot commands: `add teaching notes`, `add N assessments`, `translate`, `scaffold`, `quality`, `import <url>`, `import` (with attachment) | 🤖 | ⬜ | |
-| `B-W5D21-4` | Wire `cmd/bot/main.go` — real HTTP server with webhook handler (replace placeholder) | 🤖 | ⬜ | |
-| `B-W5D21-5` | 🧑 Register GitHub App: p-n-ai org, webhook URL, permissions (Issues R/W, PRs R/W, Contents R/W) | 🧑 Human | ⬜ | |
+| `B-W5D21-1` | `internal/github/app.go` — GitHub App authentication (JWT from private key, installation token exchange) | 🤖 | ✅ | |
+| `B-W5D21-2` | `internal/github/webhook.go` — webhook handler: verify HMAC signature, parse issue_comment events, extract @oss-bot commands | 🤖 | ✅ | BotCommand type lives in internal/parser to avoid circular imports |
+| `B-W5D21-3` | `internal/parser/command.go` — parse bot commands: `add teaching notes`, `add N assessments`, `translate`, `scaffold`, `quality`, `import <url>`, `import` (with attachment) | 🤖 | ✅ | |
+| `B-W5D21-4` | Wire `cmd/bot/main.go` — real HTTP server with webhook handler (replace placeholder) | 🤖 | ✅ | |
+| `B-W5D21-5` | 🧑 Register GitHub App: p-n-ai org, webhook URL, permissions (Issues R/W, PRs R/W, Contents R/W) | 🧑 Human | ✅ | smee requires --path /webhook flag |
 
 ### Day 22 (Tue) — Bot → PR Pipeline + Content Merge
 
