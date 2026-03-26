@@ -66,8 +66,8 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W4D19-1` | `internal/generator/teaching_notes.go` — generate teaching notes for a topic: build context → inject into template → call AI → parse markdown → validate → write file | 🤖 | ⬜ | |
 | `B-W4D19-2` | `internal/generator/assessments.go` — generate N assessment questions: build context → inject → call AI → parse YAML → validate against schema → retry if invalid → write file | 🤖 | ⬜ | |
 | `B-W4D19-3` | `internal/generator/examples.go` — generate worked examples with step-by-step solutions | 🤖 | ⬜ | |
-| `B-W4D19-4` | `oss generate teaching-notes --topic F2-01 --syllabus kssm-tingkatan2` — generate and write to correct path | 🤖 | ⬜ | |
-| `B-W4D19-5` | `oss generate assessments --topic F2-01 --count 5 --difficulty medium` — generate N questions | 🤖 | ⬜ | |
+| `B-W4D19-4` | `internal/pipeline/pipeline.go` — unified orchestrator: all interfaces call `pipeline.Execute()` with mode (Preview/WriteFS/CreatePR). `internal/output/writer.go` — `LocalWriter` (CLI) + `GitHubWriter` (Bot/Web) | 🤖 | ⬜ | |
+| `B-W4D19-5` | Wire CLI commands via pipeline: `oss generate teaching-notes`, `oss generate assessments` | 🤖 | ⬜ | |
 
 ### Day 20 (Fri) — Translation + Testing
 
@@ -78,7 +78,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W4D20-3` | Test full pipeline: generate teaching notes + assessments + examples + translation for 1 Form 2 topic. Compare AI-generated vs manually-written quality. | 🤖🧑 | ⬜ | |
 | `B-W4D20-4` | 🧑 Education Lead evaluates: is AI-generated content quality acceptable with light editing? What needs to improve in prompts? | 🧑 Education Lead | ⬜ | |
 
-**Week 4 Output:** Working CLI with validate, generate, quality, translate commands. Prompt templates for KSSM content.
+**Week 4 Output:** Working CLI with validate, generate, quality, translate commands. Shared pipeline orchestrator (`internal/pipeline`) and output writers (`internal/output`) — all future interfaces (Bot, Web) will call the same `pipeline.Execute()`. Prompt templates for KSSM content.
 
 ---
 
@@ -99,7 +99,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 |---------|------|-------|--------|--------|
 | `B-W5D22-1` | `internal/github/pr.go` — create branch, commit files, open PR with labels and description | 🤖 | ⬜ | |
 | `B-W5D22-2` | `internal/github/contents.go` — read existing topic files from oss repo via GitHub Contents API | 🤖 | ⬜ | |
-| `B-W5D22-3` | Bot command flow: `@oss-bot add teaching notes for F2-01` → load topic from GitHub → run generation pipeline → create branch → commit files → open PR with provenance:ai-generated label | 🤖 | ⬜ | |
+| `B-W5D22-3` | Bot command flow: parse `@oss-bot` comment → call shared `pipeline.Execute(ModeCreatePR)` → react to comment with PR link. Reuses same pipeline as CLI and Web Portal. | 🤖 | ⬜ | |
 | `B-W5D22-4` | Bot responds to issue with PR link: "I've generated teaching notes for F2-01 and opened #PR. Please review for accuracy." | 🤖 | ⬜ | |
 
 ### Day 23 (Wed) — Content Import (URL, Upload, Text) + More Commands
@@ -146,7 +146,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 |---------|------|-------|--------|--------|
 | `B-W6D26-1` | Scaffold `web/`: Next.js 14 + TypeScript + shadcn/ui + Tailwind | 🤖 | ⬜ | |
 | `B-W6D26-2` | Contribution form: Select topic → Contribution type → Three input methods: paste URL, type/paste text, or upload file (PDF, DOCX, PPTX, TXT, image) | 🤖 | ⬜ | |
-| `B-W6D26-3` | `POST /api/preview` — AI structures the natural language input into proper YAML/markdown, returns preview | 🤖 | ⬜ | |
+| `B-W6D26-3` | `POST /api/preview` — calls shared `pipeline.Execute(ModePreview)`, returns structured YAML. `POST /api/submit` — calls `pipeline.Execute(ModeCreatePR)`. Both delegate to the same pipeline as CLI and Bot. | 🤖 | ⬜ | |
 
 ### Day 27 (Tue) — Submit + Preview Flow
 

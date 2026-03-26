@@ -51,35 +51,42 @@ oss-bot/
 │   │   ├── openai.go
 │   │   ├── anthropic.go
 │   │   └── ollama.go
-│   ├── generator/                   # Content generation pipeline
+│   ├── pipeline/                    # Shared orchestrator (ALL interfaces use this)
+│   │   └── pipeline.go              # Execute(ctx, Request) → Result
+│   ├── output/                      # Output writers
+│   │   ├── writer.go                # Writer interface + LocalWriter (CLI)
+│   │   └── github.go                # GitHubWriter (Bot + Web Portal)
+│   ├── generator/                   # Content generation (individual generators)
 │   │   ├── context.go               # Context builder (loads topic, schema, etc.)
 │   │   ├── teaching_notes.go
 │   │   ├── assessments.go
 │   │   ├── examples.go
 │   │   ├── translator.go
 │   │   ├── scaffolder.go
-│   │   └── importer.go              # Document -> curriculum import (PDF, DOCX, PPTX, HTML)
+│   │   └── importer.go              # Document -> curriculum import
 │   ├── validator/                   # Schema validation
 │   │   ├── validator.go             # JSON Schema engine
 │   │   ├── bloom.go                 # Bloom's taxonomy checks
 │   │   ├── prerequisites.go         # Prerequisite graph cycle detection
 │   │   ├── duplicates.go            # Duplicate content detection
 │   │   └── quality.go               # Quality level assessment
-│   ├── parser/                      # Input parsing + document extraction
+│   ├── parser/                      # Input parsing + content extraction
 │   │   ├── command.go               # Parse @oss-bot commands
 │   │   ├── contribution.go          # Natural language -> structured data
-│   │   ├── document.go              # DocumentParser interface
+│   │   ├── document.go              # ContentExtractor interface + InputSource
 │   │   ├── pdf.go                   # PDF text extraction (Go-native, for CLI)
-│   │   └── tika.go                  # Apache Tika client (multi-format, for server)
+│   │   ├── tika.go                  # Apache Tika client (multi-format, for server)
+│   │   ├── url.go                   # URL fetcher (web page → text)
+│   │   └── image.go                 # Image extraction (OCR + AI Vision)
 │   ├── github/                      # GitHub API integration
 │   │   ├── app.go                   # GitHub App auth (JWT + installation tokens)
 │   │   ├── webhook.go               # Webhook handler + HMAC verification
 │   │   ├── pr.go                    # PR creation, labels, reviewers
 │   │   └── contents.go              # Read/write via GitHub Contents API
-│   └── api/                         # Web portal backend
+│   └── api/                         # Web portal backend (thin layer → delegates to pipeline)
 │       ├── router.go
-│       ├── preview.go               # POST /api/preview
-│       ├── submit.go                # POST /api/submit
+│       ├── preview.go               # POST /api/preview → pipeline.Execute(ModePreview)
+│       ├── submit.go                # POST /api/submit → pipeline.Execute(ModeCreatePR)
 │       └── curricula.go             # GET /api/curricula
 ├── web/                             # Next.js web portal
 │   ├── src/app/                     # Pages (App Router)
@@ -147,12 +154,35 @@ type AIProvider interface {
 }
 ```
 
+### Unified Pipeline Orchestrator
+All three interfaces (CLI, Bot, Web Portal) call the same `pipeline.Execute()` function. No generation logic is duplicated across interfaces — each interface is a thin adapter that parses its input format and delegates to the shared pipeline.
+
+```go
+// internal/pipeline/pipeline.go
+result, err := pipeline.Execute(ctx, pipeline.Request{
+    TopicPath:        "mathematics/algebra/03-simultaneous-equations",
+    ContributionType: "teaching_notes",
+    Content:          extractedText,
+    Mode:             pipeline.ModeCreatePR, // or ModePreview, ModeWriteFS
+    Source:           "bot",                 // or "cli", "web"
+})
+```
+
+**Execution modes:**
+- `ModePreview` — generate + validate, return structured output (Web Portal preview, CLI dry-run)
+- `ModeWriteFS` — generate + validate + write files to filesystem (CLI default)
+- `ModeCreatePR` — generate + validate + create GitHub PR (Bot, Web submit, CLI `--pr`)
+
+**Output writers** (`internal/output/`):
+- `LocalWriter` — writes to filesystem (CLI)
+- `GitHubWriter` — creates PRs via GitHub API (Bot, Web Portal)
+
 ### Content Generation Pipeline
-Every generation follows 4 stages regardless of interface:
+The pipeline executes 4 stages regardless of interface:
 1. **Context Builder** — loads topic YAML, related topics, schema rules, style examples (~8K tokens)
 2. **AI Generation** — injects context into prompt template, calls AI provider
 3. **Validation** — JSON Schema check, Bloom's taxonomy, prerequisite graph, duplicate detection
-4. **Output** — write files, open PR with provenance labels and quality assessment
+4. **Output** — based on execution mode: write files, open PR, or return preview
 
 If validation fails, the pipeline retries once with error feedback before reporting failure.
 

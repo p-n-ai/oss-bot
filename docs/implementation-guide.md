@@ -97,7 +97,7 @@ go mod init github.com/p-n-ai/oss-bot
 
 # Create directory structure
 mkdir -p cmd/oss cmd/bot
-mkdir -p internal/{ai,generator,validator,parser,github,api}
+mkdir -p internal/{ai,generator,validator,parser,github,api,pipeline,output}
 mkdir -p prompts
 mkdir -p scripts
 mkdir -p deploy/docker
@@ -2602,8 +2602,8 @@ go test -v ./internal/generator/...
 | 19.1 | `B-W4D19-1` | Teaching notes generator | 🤖 | `internal/generator/teaching_notes.go` |
 | 19.2 | `B-W4D19-2` | Assessment generator | 🤖 | `internal/generator/assessments.go` |
 | 19.3 | `B-W4D19-3` | Worked examples generator | 🤖 | `internal/generator/examples.go` |
-| 19.4 | `B-W4D19-4` | Wire `oss generate teaching-notes` | 🤖 | Update `cmd/oss/main.go` |
-| 19.5 | `B-W4D19-5` | Wire `oss generate assessments` | 🤖 | Update `cmd/oss/main.go` |
+| 19.4 | `B-W4D19-4` | Unified pipeline orchestrator + output writers | 🤖 | `internal/pipeline/pipeline.go`, `internal/output/writer.go`, `internal/output/github.go` |
+| 19.5 | `B-W4D19-5` | Wire CLI commands via pipeline | 🤖 | Update `cmd/oss/main.go` |
 
 #### 19.1 — Teaching Notes Generator (TDD)
 
@@ -2966,16 +2966,351 @@ Follow the same pattern as 19.1 and 19.2. Create:
 
 The examples generator produces `.examples.yaml` files with step-by-step worked solutions.
 
-#### 19.4 & 19.5 — Wire CLI Commands
+#### 19.4 — Unified Pipeline Orchestrator
 
-Update `cmd/oss/main.go` to connect the `generate teaching-notes` and `generate assessments` commands to the generator package:
+All three interfaces (CLI, Bot, Web Portal) execute the same content generation workflow. Instead of reimplementing this in each interface, a shared `Pipeline` orchestrator ensures one code path for all.
+
+**File:** `internal/pipeline/pipeline.go`
+
+```go
+package pipeline
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/p-n-ai/oss-bot/internal/ai"
+	"github.com/p-n-ai/oss-bot/internal/generator"
+	"github.com/p-n-ai/oss-bot/internal/output"
+	"github.com/p-n-ai/oss-bot/internal/validator"
+)
+
+// ExecutionMode determines what happens after content is generated and validated.
+type ExecutionMode int
+
+const (
+	// ModePreview generates and validates content, returns structured output.
+	// Used by: Web Portal preview, CLI dry-run.
+	ModePreview ExecutionMode = iota
+
+	// ModeWriteFS writes generated files to the local filesystem.
+	// Used by: CLI tool.
+	ModeWriteFS
+
+	// ModeCreatePR creates a GitHub PR with generated content.
+	// Used by: GitHub Bot, Web Portal submit, CLI --pr flag.
+	ModeCreatePR
+)
+
+// Request is the unified input for all content generation, regardless of interface.
+type Request struct {
+	TopicPath        string
+	ContributionType string // "teaching_notes", "assessments", "examples", "translation", "import"
+	Content          string // Pre-extracted text (after input processing)
+	Mode             ExecutionMode
+	OutputDir        string            // For ModeWriteFS
+	Options          map[string]string // count, difficulty, language, etc.
+	Source           string            // "cli", "bot", "web" — for provenance
+}
+
+// Result is the unified output from the pipeline.
+type Result struct {
+	StructuredOutput string              // Generated YAML/Markdown
+	Files            map[string]string   // filepath -> content
+	ValidationErrors []string
+	QualityLevel     int
+	PRUrl            string // Populated only in ModeCreatePR
+	PRNumber         int
+}
+
+// Pipeline is the shared orchestrator for all content generation.
+type Pipeline struct {
+	aiProvider ai.Provider
+	validator  *validator.Validator
+	writer     output.Writer
+	promptsDir string
+	repoPath   string
+}
+
+// New creates a pipeline with the given dependencies.
+func New(provider ai.Provider, v *validator.Validator, w output.Writer, promptsDir, repoPath string) *Pipeline {
+	return &Pipeline{
+		aiProvider: provider,
+		validator:  v,
+		writer:     w,
+		promptsDir: promptsDir,
+		repoPath:   repoPath,
+	}
+}
+
+// Execute runs the full content generation workflow:
+//  1. Build context from topic
+//  2. Generate content via AI
+//  3. Validate output
+//  4. Retry once if validation fails
+//  5. Execute based on mode (preview, write FS, create PR)
+func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
+	// 1. Build context
+	genCtx, err := generator.BuildContext(p.repoPath, req.TopicPath)
+	if err != nil {
+		return nil, fmt.Errorf("building context: %w", err)
+	}
+
+	// 2. Generate based on contribution type
+	generated, err := p.generate(ctx, genCtx, req)
+	if err != nil {
+		return nil, fmt.Errorf("generating content: %w", err)
+	}
+
+	// 3. Validate
+	validationErrors := p.validator.ValidateContent(generated.Files)
+
+	// 4. Retry once if validation fails
+	if len(validationErrors) > 0 {
+		generated, err = p.generateWithFeedback(ctx, genCtx, req, validationErrors)
+		if err != nil {
+			return nil, fmt.Errorf("retry generation: %w", err)
+		}
+		validationErrors = p.validator.ValidateContent(generated.Files)
+	}
+
+	result := &Result{
+		StructuredOutput: generated.Content,
+		Files:            generated.Files,
+		ValidationErrors: validationErrors,
+		QualityLevel:     p.validator.AssessQuality(generated.Files),
+	}
+
+	// 5. Execute based on mode
+	if len(validationErrors) == 0 {
+		switch req.Mode {
+		case ModeWriteFS:
+			if err := p.writer.WriteFiles(ctx, req.OutputDir, generated.Files); err != nil {
+				return nil, fmt.Errorf("writing files: %w", err)
+			}
+		case ModeCreatePR:
+			pr, err := p.writer.CreatePR(ctx, output.PRInput{
+				Files:       generated.Files,
+				TopicPath:   req.TopicPath,
+				ContentType: req.ContributionType,
+				Quality:     result.QualityLevel,
+				Source:      req.Source,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("creating PR: %w", err)
+			}
+			result.PRUrl = pr.URL
+			result.PRNumber = pr.Number
+		case ModePreview:
+			// No side effects — result already populated
+		}
+	}
+
+	return result, nil
+}
+
+func (p *Pipeline) generate(ctx context.Context, genCtx *generator.GenerationContext, req Request) (*generator.GenerationResult, error) {
+	switch req.ContributionType {
+	case "teaching_notes":
+		return generator.GenerateTeachingNotes(ctx, p.aiProvider, genCtx, p.promptsDir)
+	case "assessments":
+		count := 5 // default
+		difficulty := "medium"
+		if v, ok := req.Options["count"]; ok {
+			fmt.Sscanf(v, "%d", &count)
+		}
+		if v, ok := req.Options["difficulty"]; ok {
+			difficulty = v
+		}
+		return generator.GenerateAssessments(ctx, p.aiProvider, genCtx, count, difficulty, p.promptsDir)
+	case "examples":
+		return generator.GenerateExamples(ctx, p.aiProvider, genCtx, p.promptsDir)
+	case "translation":
+		lang := req.Options["to"]
+		return generator.Translate(ctx, p.aiProvider, genCtx, lang, p.promptsDir)
+	case "import":
+		return generator.ImportFromText(ctx, p.aiProvider, req.Content, req.Options, p.promptsDir)
+	default:
+		return nil, fmt.Errorf("unknown contribution type: %s", req.ContributionType)
+	}
+}
+
+func (p *Pipeline) generateWithFeedback(ctx context.Context, genCtx *generator.GenerationContext, req Request, errors []string) (*generator.GenerationResult, error) {
+	// Inject validation errors as feedback for the retry
+	genCtx.ValidationFeedback = errors
+	return p.generate(ctx, genCtx, req)
+}
+```
+
+**File:** `internal/output/writer.go`
+
+```go
+package output
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+// Writer abstracts where generated content is written.
+type Writer interface {
+	// WriteFiles writes files to the local filesystem (CLI).
+	WriteFiles(ctx context.Context, baseDir string, files map[string]string) error
+
+	// CreatePR creates a GitHub PR with the given files (Bot, Web Portal).
+	CreatePR(ctx context.Context, input PRInput) (*PROutput, error)
+}
+
+// PRInput holds the data needed to create a PR.
+type PRInput struct {
+	Files       map[string]string // filepath -> content
+	TopicPath   string
+	ContentType string
+	Quality     int
+	Source      string // "cli", "bot", "web"
+}
+
+// PROutput holds the result of creating a PR.
+type PROutput struct {
+	URL    string
+	Number int
+	Branch string
+}
+
+// LocalWriter writes files to the local filesystem. Used by CLI.
+type LocalWriter struct{}
+
+func (w *LocalWriter) WriteFiles(ctx context.Context, baseDir string, files map[string]string) error {
+	for path, content := range files {
+		fullPath := filepath.Join(baseDir, path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			return fmt.Errorf("creating directory for %s: %w", path, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func (w *LocalWriter) CreatePR(ctx context.Context, input PRInput) (*PROutput, error) {
+	return nil, fmt.Errorf("LocalWriter does not support PR creation — use GitHubWriter")
+}
+```
+
+**File:** `internal/output/github.go`
+
+```go
+package output
+
+import (
+	"context"
+	"fmt"
+
+	gh "github.com/p-n-ai/oss-bot/internal/github"
+)
+
+// GitHubWriter creates PRs via the GitHub API. Used by Bot and Web Portal.
+type GitHubWriter struct {
+	app       *gh.App
+	repoOwner string
+	repoName  string
+}
+
+// NewGitHubWriter creates a writer that creates PRs via the GitHub API.
+func NewGitHubWriter(app *gh.App, owner, repo string) *GitHubWriter {
+	return &GitHubWriter{app: app, repoOwner: owner, repoName: repo}
+}
+
+func (w *GitHubWriter) WriteFiles(ctx context.Context, baseDir string, files map[string]string) error {
+	return fmt.Errorf("GitHubWriter does not support local file writing — use LocalWriter")
+}
+
+func (w *GitHubWriter) CreatePR(ctx context.Context, input PRInput) (*PROutput, error) {
+	branch := gh.GenerateBranchName("add", input.ContentType, input.TopicPath)
+
+	var fileChanges []gh.FileChange
+	for path, content := range input.Files {
+		fileChanges = append(fileChanges, gh.FileChange{Path: path, Content: content})
+	}
+
+	labels := []string{
+		"provenance:ai-generated",
+		fmt.Sprintf("quality:level-%d", input.Quality),
+		fmt.Sprintf("source:%s", input.Source),
+	}
+
+	result, err := w.app.CreatePR(ctx, gh.PRRequest{
+		Owner:      w.repoOwner,
+		Repo:       w.repoName,
+		Title:      fmt.Sprintf("Add %s for %s", input.ContentType, input.TopicPath),
+		Body:       fmt.Sprintf("Generated by oss-bot via %s.\n\nQuality level: %d", input.Source, input.Quality),
+		BranchName: branch,
+		BaseBranch: "main",
+		Files:      fileChanges,
+		Labels:     labels,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &PROutput{URL: result.URL, Number: result.Number, Branch: result.Branch}, nil
+}
+```
+
+This means all three interfaces use the **same code path**:
+
+| Interface | How it calls the pipeline |
+|-----------|--------------------------|
+| **CLI** | `pipeline.Execute(ctx, Request{Mode: ModeWriteFS, OutputDir: repoPath})` |
+| **Bot** | `pipeline.Execute(ctx, Request{Mode: ModeCreatePR, Source: "bot"})` |
+| **Web (preview)** | `pipeline.Execute(ctx, Request{Mode: ModePreview})` |
+| **Web (submit)** | `pipeline.Execute(ctx, Request{Mode: ModeCreatePR, Source: "web"})` |
+| **CLI --pr** | `pipeline.Execute(ctx, Request{Mode: ModeCreatePR, Source: "cli"})` |
+
+#### 19.5 — Wire CLI Commands
+
+Update `cmd/oss/main.go` to connect the `generate teaching-notes` and `generate assessments` commands to the **pipeline** (not directly to generators):
 
 1. Parse `OSS_AI_PROVIDER` and `OSS_AI_API_KEY` environment variables
 2. Create the AI provider using `ai.NewProvider()`
-3. Build context using `generator.BuildContext()`
-4. Call the appropriate generator function
-5. Write output to the correct file path
-6. Print success/failure with file path
+3. Create the pipeline: `pipeline.New(provider, validator, &output.LocalWriter{}, promptsDir, repoPath)`
+4. Call `pipeline.Execute()` with the appropriate `Request`
+5. Print success/failure with file path
+
+```go
+// Example: CLI wiring for generate teaching-notes
+func runTeachingNotes(cmd *cobra.Command, args []string) error {
+	topicPath := args[0]
+	repoPath := os.Getenv("OSS_REPO_PATH")
+
+	p := pipeline.New(provider, v, &output.LocalWriter{}, "prompts/", repoPath)
+
+	result, err := p.Execute(context.Background(), pipeline.Request{
+		TopicPath:        topicPath,
+		ContributionType: "teaching_notes",
+		Mode:             pipeline.ModeWriteFS,
+		OutputDir:        repoPath,
+		Source:           "cli",
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(result.ValidationErrors) > 0 {
+		for _, e := range result.ValidationErrors {
+			fmt.Fprintf(os.Stderr, "  ⚠ %s\n", e)
+		}
+	}
+
+	for path := range result.Files {
+		fmt.Printf("  ✅ Written: %s\n", path)
+	}
+	return nil
+}
+```
 
 **Create also:** `prompts/examples.md` — template for worked examples generation.
 
@@ -2999,12 +3334,15 @@ go run ./cmd/oss generate assessments --help
 - [ ] `internal/generator/teaching_notes.go` + tests — generates teaching notes via AI
 - [ ] `internal/generator/assessments.go` + tests — generates assessment YAML via AI
 - [ ] `internal/generator/examples.go` + tests — generates worked examples via AI
+- [ ] `internal/pipeline/pipeline.go` + tests — unified pipeline (Preview, WriteFS, CreatePR modes)
+- [ ] `internal/output/writer.go` — `Writer` interface + `LocalWriter` (filesystem) + `GitHubWriter` (PRs)
+- [ ] CLI commands wired through `pipeline.Execute()` (not directly to generators)
 - [ ] `oss generate teaching-notes <topic>` command wired and working
 - [ ] `oss generate assessments <topic> --count 5 --difficulty medium` command wired
 - [ ] All generators use mock provider in tests (no real API calls)
 - [ ] `go test ./...` passes with zero failures
 
-**Progress:** CLI fully functional (validate + generate) | 3 packages | 3 prompt templates
+**Progress:** CLI fully functional (validate + generate) | 5 packages (+ pipeline, output) | 3 prompt templates
 
 ---
 
@@ -3995,8 +4333,10 @@ go test -v ./internal/parser/...
 |---|---------|------|-------|---------------|
 | 22.1 | `B-W5D22-1` | PR creation (branch, commit, open PR) | 🤖 | `internal/github/pr.go` |
 | 22.2 | `B-W5D22-2` | GitHub Contents API (read files from repo) | 🤖 | `internal/github/contents.go` |
-| 22.3 | `B-W5D22-3` | Bot command flow: comment → generate → PR | 🤖 | Wiring in `cmd/bot/main.go` |
+| 22.3 | `B-W5D22-3` | Bot command flow: parse command → call shared pipeline (ModeCreatePR) → react with PR link | 🤖 | Wiring in `cmd/bot/main.go` |
 | 22.4 | `B-W5D22-4` | Bot responds to issue with PR link | 🤖 | Part of PR flow |
+
+> **Architecture note:** The bot reuses the same `pipeline.Execute()` from Day 19. It creates a `GitHubWriter` (instead of `LocalWriter`) and calls `pipeline.Execute(ctx, Request{Mode: ModeCreatePR, Source: "bot"})`. No generation logic is reimplemented — only the webhook-to-command parsing and GitHub reaction posting are bot-specific.
 
 #### 22.1 — PR Creation (TDD)
 
@@ -5821,8 +6161,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/p-n-ai/oss-bot/internal/ai"
-	"github.com/p-n-ai/oss-bot/internal/validator"
+	"github.com/p-n-ai/oss-bot/internal/pipeline"
 )
 
 // PreviewRequest is the web portal's preview request.
@@ -5847,14 +6186,14 @@ type PreviewResponse struct {
 }
 
 // PreviewHandler handles POST /api/preview.
+// Uses the shared pipeline in ModePreview — no PR created, just structured output returned.
 type PreviewHandler struct {
-	aiProvider ai.Provider
-	validator  *validator.Validator
+	pipe *pipeline.Pipeline
 }
 
-// NewPreviewHandler creates a new preview handler.
-func NewPreviewHandler(provider ai.Provider, v *validator.Validator) *PreviewHandler {
-	return &PreviewHandler{aiProvider: provider, validator: v}
+// NewPreviewHandler creates a new preview handler backed by the shared pipeline.
+func NewPreviewHandler(pipe *pipeline.Pipeline) *PreviewHandler {
+	return &PreviewHandler{pipe: pipe}
 }
 
 func (h *PreviewHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -5883,22 +6222,30 @@ func (h *PreviewHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"inputMethod", req.InputMethod,
 	)
 
-	// In full implementation:
-	// 1. Extract text based on input method:
-	//    - "text": use content directly
-	//    - "url": fetch URL via URLFetcher, extract text
-	//    - "file": extract via ContentExtractor (Tika for server)
-	//      - For images: use OCR (default) or AI Vision (if useVision=true)
-	//        Auto mode: try OCR first, fall back to Vision if sparse text
-	// 2. Build context from topic
-	// 3. Parse contribution via AI
-	// 4. Validate structured output
-	// 5. Return preview
+	// Extract content based on input method
+	content, err := h.extractContent(r, &req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Call the shared pipeline in Preview mode — same code path as CLI and Bot
+	result, err := h.pipe.Execute(r.Context(), pipeline.Request{
+		TopicPath:        req.TopicID,
+		ContributionType: req.ContributionType,
+		Content:          content,
+		Mode:             pipeline.ModePreview,
+		Source:           "web",
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	resp := PreviewResponse{
-		Structured:       "# Preview\n\nStructured output will appear here after AI processing.",
-		ValidationErrors: []string{},
-		QualityLevel:     1,
+		Structured:       result.StructuredOutput,
+		ValidationErrors: result.ValidationErrors,
+		QualityLevel:     result.QualityLevel,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -5999,13 +6346,14 @@ type SubmitResponse struct {
 }
 
 // SubmitHandler handles POST /api/submit.
+// Uses the shared pipeline in ModeCreatePR — same code path as GitHub Bot.
 type SubmitHandler struct {
-	githubClient interface{} // GitHub App client for PR creation
+	pipe *pipeline.Pipeline
 }
 
-// NewSubmitHandler creates a new submit handler.
-func NewSubmitHandler(ghClient interface{}) *SubmitHandler {
-	return &SubmitHandler{githubClient: ghClient}
+// NewSubmitHandler creates a new submit handler backed by the shared pipeline.
+func NewSubmitHandler(pipe *pipeline.Pipeline) *SubmitHandler {
+	return &SubmitHandler{pipe: pipe}
 }
 
 func (h *SubmitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -6015,8 +6363,8 @@ func (h *SubmitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.TopicID == "" || req.Content == "" {
-		http.Error(w, "topicId and content are required", http.StatusBadRequest)
+	if req.TopicID == "" {
+		http.Error(w, "topicId is required", http.StatusBadRequest)
 		return
 	}
 
@@ -6025,17 +6373,34 @@ func (h *SubmitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"type", req.ContributionType,
 	)
 
-	// In full implementation:
-	// 1. Build context and generate structured content (reuse preview)
-	// 2. Validate against schema
-	// 3. Create branch via GitHub API
-	// 4. Commit generated files
-	// 5. Open PR with provenance labels
-	// 6. Return PR URL
+	// Extract content based on input method (same as preview)
+	content, err := extractContent(r, &req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Call the shared pipeline in CreatePR mode — same pipeline as Bot and CLI --pr
+	result, err := h.pipe.Execute(r.Context(), pipeline.Request{
+		TopicPath:        req.TopicID,
+		ContributionType: req.ContributionType,
+		Content:          content,
+		Mode:             pipeline.ModeCreatePR,
+		Source:           "web",
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if len(result.ValidationErrors) > 0 {
+		http.Error(w, "validation failed: "+result.ValidationErrors[0], http.StatusUnprocessableEntity)
+		return
+	}
 
 	resp := SubmitResponse{
-		PRUrl:    "https://github.com/p-n-ai/oss/pull/0",
-		PRNumber: 0,
+		PRUrl:    result.PRUrl,
+		PRNumber: result.PRNumber,
 		Status:   "submitted",
 	}
 
@@ -6390,10 +6755,12 @@ Write the oss-bot section of the 6-week report covering:
 |---------|-----------|-----------|---------|
 | `internal/validator` | Day 16-17 | `validator.go`, `bloom.go`, `prerequisites.go`, `duplicates.go`, `quality.go` | JSON Schema validation, content quality checks |
 | `internal/ai` | Day 18 | `provider.go`, `mock.go`, `openai.go`, `anthropic.go`, `ollama.go` | AI provider interface (shared with P&AI Bot) |
-| `internal/generator` | Day 18-20 | `context.go`, `teaching_notes.go`, `assessments.go`, `examples.go`, `translator.go`, `scaffolder.go` | Content generation pipeline |
+| `internal/generator` | Day 18-20 | `context.go`, `teaching_notes.go`, `assessments.go`, `examples.go`, `translator.go`, `scaffolder.go` | Content generation (individual generators) |
+| `internal/pipeline` | Day 19 | `pipeline.go` | **Shared orchestrator** — all three interfaces call `pipeline.Execute()` with different modes (Preview, WriteFS, CreatePR) |
+| `internal/output` | Day 19 | `writer.go`, `github.go` | Output writers: `LocalWriter` (CLI filesystem), `GitHubWriter` (Bot/Web PR creation) |
 | `internal/parser` | Day 23-24 | `document.go`, `pdf.go`, `tika.go`, `url.go`, `image.go`, `contribution.go` | ContentExtractor interface, Go-native PDF (CLI), Tika multi-format (server), URL fetcher, image extraction (OCR + AI Vision), natural language parsing |
 | `internal/github` | Day 21-22 | `app.go`, `webhook.go`, `pr.go`, `contents.go` | GitHub App auth, webhooks, PR creation |
-| `internal/api` | Day 24-28 | `router.go`, `preview.go`, `submit.go`, `feedback.go`, `curricula.go` | Web portal HTTP API |
+| `internal/api` | Day 24-28 | `router.go`, `preview.go`, `submit.go`, `feedback.go`, `curricula.go` | Web portal HTTP API (thin layer — delegates to shared pipeline) |
 
 ---
 
@@ -6456,7 +6823,7 @@ Write the oss-bot section of the 6-week report covering:
 | 16 | 1 (validator) | ✅ | validate | — | — | — |
 | 17 | 1 (validator: 5 files) | ✅ | validate, quality | — | — | — |
 | 18 | 3 (validator, ai, generator) | ✅ | validate, quality | — | 2 | — |
-| 19 | 3 | ✅ | validate, generate (3), quality | — | 3 | — |
+| 19 | 5 (+pipeline, output) | ✅ | validate, generate (3), quality | — | 3 | — |
 | 20 | 3 | ✅ | validate, generate (3), quality, translate | — | 4 | — |
 | 21 | 5 (+github, parser) | ✅ | All CLI | — | 4 | — |
 | 22 | 5 | ✅ | All CLI | — | 4 | — |
