@@ -67,7 +67,7 @@ OSS Bot uses Go to match the P&AI Bot stack, enabling code sharing and consisten
 | **Language** | Go | ≥1.22 | Matches P&AI Bot stack. Single binary for CLI distribution. Goroutines for concurrent API calls. |
 | **HTTP Router** | Go stdlib `net/http` | 1.22+ | Webhook handler for GitHub events. Minimal dependencies. |
 | **AI Providers** | Custom interface | — | Same provider abstraction as P&AI Bot. Supports OpenAI, Anthropic, Ollama. |
-| **GitHub API** | `google/go-github` | v6 | GitHub App authentication, PR creation, issue commenting, file operations. |
+| **GitHub API** | stdlib `net/http` | — | Direct REST calls to GitHub API (no third-party client). Covers: App auth (JWT + installation tokens), PR creation (GetRef → CreateRef → PutContents → CreatePull), Contents API (read files for merge stage), issue commenting. Keeps go.mod lean and is consistent with existing bot HTTP helpers. |
 | **YAML Parsing** | `go-yaml/yaml` | v3 | Read and write OSS curriculum YAML files. |
 | **JSON Schema** | `santhosh-tekuri/jsonschema` | v5 | In-process schema validation (no shelling out to ajv). |
 | **PDF Parsing (CLI)** | `ledongthuc/pdf` | latest | Lightweight Go-native PDF text extraction for standalone CLI use. |
@@ -729,7 +729,7 @@ All configuration via environment variables with `OSS_` prefix.
 | Library | Purpose | Import Path |
 |---------|---------|-------------|
 | cobra | CLI framework | `github.com/spf13/cobra` |
-| go-github | GitHub API client | `github.com/google/go-github/v62` |
+| net/http (stdlib) | GitHub REST API client | `net/http` (stdlib) — `internal/github/client.go` wraps the four required calls: GetRef, CreateRef, PutContents, CreatePull |
 | go-yaml | YAML parsing/writing | `gopkg.in/yaml.v3` |
 | jsonschema | JSON Schema validation | `github.com/santhosh-tekuri/jsonschema/v5` |
 | jwt | GitHub App JWT auth | `github.com/golang-jwt/jwt/v5` |

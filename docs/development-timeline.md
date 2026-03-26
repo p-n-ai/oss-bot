@@ -136,10 +136,14 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D24-5` | Extend `internal/validator/bloom.go` — add cross-subject Bloom verbs: science (predict, hypothesize, synthesize, observe, experiment), humanities (interpret, critique, contextualize), general (research, collaborate, present) | 🤖 | ⬜ | New: multi-subject support |
 | `B-W5D24-6` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts | 🤖 | ⬜ | Moved from previous Day 24 |
 
-### Day 25 (Fri) — Bot Commands + Docker + Testing
+### Day 25 (Fri) — GitHub API Client + Bot Commands + Docker + Testing
+
+> **Updated (2026-03-27, Gap 1 + Gap 3 from Day 22):** Added tasks `B-W5D25-11` and `B-W5D25-12`. Both are prerequisites for the end-to-end test (`B-W5D25-9`). Design decision: use stdlib `net/http` for all GitHub API calls — no `google/go-github/v62` dependency.
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
+| `B-W5D25-11` | `internal/github/client.go` — minimal stdlib HTTP client: `GetRef`, `CreateRef`, `PutContents`, `CreatePull`, `ReadFile`. Tests use `httptest.NewServer`. | 🤖 | ⬜ | Gap 1+3 from Day 22: no go-github dep |
+| `B-W5D25-12` | Implement `GitHubWriter.CreatePR` (branch → commit → PR). Add `GitHubContentsClient` + `GitHubContentsReader`. Wire reader in `cmd/bot/main.go` so merge stage activates. | 🤖 | ⬜ | Gap 1+3 from Day 22: prerequisite for B-W5D25-9 |
 | `B-W5D25-1` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | |
 | `B-W5D25-2` | Create `prompts/contribution_parser.md` — parse natural language teacher input into structured YAML, preserve teacher's voice | 🤖 | ⬜ | |
 | `B-W5D25-3` | `internal/parser/contribution.go` — teacher writes "My students always confuse the negative sign when expanding brackets" → structured misconception entry | 🤖 | ⬜ | |

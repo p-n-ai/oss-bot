@@ -4474,15 +4474,16 @@ func BuildPRBody(cmd BotCommand, model string, generatedAt time.Time) string {
 ```go
 package github
 
-// ContentsClient reads and writes files via the GitHub Contents API.
-// In production, this uses go-github/v62. In tests, it uses a mock.
+// ContentsClient reads files via the GitHub Contents API.
+// In production, this uses GitHubContentsClient (stdlib net/http).
+// In tests, this uses MockContentsClient.
 type ContentsClient interface {
 	ReadFile(owner, repo, path, ref string) ([]byte, error)
 	ListDir(owner, repo, path, ref string) ([]string, error)
 }
 ```
 
-Create mock implementation for tests and real implementation using `google/go-github/v62`.
+`MockContentsClient` is used in tests (already implemented in Day 22). The production `GitHubContentsClient` is implemented in Day 25 (`B-W5D25-12`) using stdlib `net/http` — consistent with the existing `postIssueComment` / `repoInstallationID` pattern in `cmd/bot/main.go`. No third-party GitHub client library is needed.
 
 #### 22.3 — Wire Bot Command Flow
 
@@ -5982,14 +5983,18 @@ go test ./...
 
 ---
 
-### Day 25 — Docker + End-to-End Testing
+### Day 25 — GitHub API Client + Docker + End-to-End Testing
 
 **Entry criteria:** Day 24 complete. All packages have tests. Bot and API endpoints work.
+
+> **Updated (Gap 1 + Gap 3 from Day 22):** Tasks 25.11 and 25.12 are new prerequisites for the end-to-end test (25.4). They must be completed first — without them `GitHubWriter.CreatePR` errors and the merge stage never activates in the bot.
 
 #### Tasks
 
 | # | Task ID | Task | Owner | Files Created |
 |---|---------|------|-------|---------------|
+| 25.11 | `B-W5D25-11` | `internal/github/client.go` — minimal stdlib HTTP client: `GetRef`, `CreateRef`, `PutContents`, `CreatePull` | 🤖 | `internal/github/client.go` |
+| 25.12 | `B-W5D25-12` | Implement `GitHubWriter.CreatePR` using the new Client. Add `GitHubContentsClient` (real `ContentsClient`). Wire `GitHubContentsReader` in `cmd/bot/main.go`. | 🤖 | Update `internal/output/github.go`, `internal/github/contents.go`, `cmd/bot/main.go` |
 | 25.1 | `B-W5D25-1` | Dockerfile (multi-stage build) | 🤖 | `deploy/docker/Dockerfile` |
 | 25.2 | `B-W5D25-2` | docker-compose.yml (bot + Tika sidecar + optional Ollama) | 🤖 | `docker-compose.yml` |
 | 25.3 | `B-W5D25-3` | Webhook test script | 🤖 | `scripts/test-webhook.sh` |
@@ -6139,6 +6144,202 @@ oss scaffold syllabus --from-file test-curriculum.pdf --id test-syllabus --dry-r
 # Verify: merge strategies work when importing into existing content
 ```
 
+#### 25.11 — Minimal GitHub REST Client (TDD)
+
+**Context (Gap 1 + Gap 3):** All GitHub API interactions use stdlib `net/http`. The four calls needed for PR creation and file reading map directly to four REST endpoints. No third-party library needed — keeps `go.mod` lean and stays consistent with the existing `postIssueComment` / `repoInstallationID` helpers in `cmd/bot/main.go`.
+
+**File:** `internal/github/client.go`
+
+```go
+package github
+
+import (
+    "bytes"
+    "context"
+    "encoding/base64"
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+// Client is a minimal GitHub REST API client using stdlib net/http.
+// Authentication is via a Bearer token (GitHub App installation access token).
+type Client struct {
+    token      string
+    owner      string
+    repo       string
+    httpClient *http.Client
+}
+
+// NewClient creates a Client for the given repo using an installation access token.
+func NewClient(token, owner, repo string) *Client {
+    return &Client{token: token, owner: owner, repo: repo, httpClient: http.DefaultClient}
+}
+
+// GetRef returns the SHA of a git ref (e.g. "heads/main").
+// GET /repos/{owner}/{repo}/git/ref/{ref}
+func (c *Client) GetRef(ctx context.Context, ref string) (string, error) { ... }
+
+// CreateRef creates a new branch pointing at the given SHA.
+// POST /repos/{owner}/{repo}/git/refs
+func (c *Client) CreateRef(ctx context.Context, ref, sha string) error { ... }
+
+// PutContents creates or updates a single file in the repo on the given branch.
+// PUT /repos/{owner}/{repo}/contents/{path}
+func (c *Client) PutContents(ctx context.Context, path, message, content, branch string) error { ... }
+
+// CreatePull opens a pull request and returns its number and URL.
+// POST /repos/{owner}/{repo}/pulls
+func (c *Client) CreatePull(ctx context.Context, title, body, head, base string, labels []string) (int, string, error) { ... }
+
+// ReadFile fetches file content from the repo and decodes it from base64.
+// GET /repos/{owner}/{repo}/contents/{path}?ref={ref}
+func (c *Client) ReadFile(ctx context.Context, path, ref string) ([]byte, error) { ... }
+
+// do is the shared HTTP helper: sets auth + content-type headers, decodes JSON response.
+func (c *Client) do(ctx context.Context, method, url string, body, result interface{}) error {
+    var reqBody *bytes.Reader
+    if body != nil {
+        data, err := json.Marshal(body)
+        if err != nil {
+            return err
+        }
+        reqBody = bytes.NewReader(data)
+    } else {
+        reqBody = bytes.NewReader(nil)
+    }
+
+    req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+    if err != nil {
+        return err
+    }
+    req.Header.Set("Authorization", "Bearer "+c.token)
+    req.Header.Set("Accept", "application/vnd.github+json")
+    req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+    if body != nil {
+        req.Header.Set("Content-Type", "application/json")
+    }
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode >= 400 {
+        return fmt.Errorf("GitHub API %s %s returned %s", method, url, resp.Status)
+    }
+    if result != nil {
+        return json.NewDecoder(resp.Body).Decode(result)
+    }
+    return nil
+}
+```
+
+**Test:** `internal/github/client_test.go` — use `httptest.NewServer` to mock all four endpoints; verify correct HTTP method, path, auth header, and request/response shapes.
+
+#### 25.12 — Implement GitHubWriter.CreatePR + GitHubContentsClient (TDD)
+
+**Gap 1 — `internal/output/github.go`**: Implement `GitHubWriter.CreatePR` using `github.Client`. The flow is:
+
+```
+1. GetInstallationToken()          → short-lived token
+2. client.GetRef("heads/main")     → base SHA
+3. client.CreateRef(branchName)    → new branch
+4. for each file: client.PutContents(path, commitMsg, content, branch)
+5. client.CreatePull(title, body, branch, "main", labels)  → PR number + URL
+```
+
+```go
+func (w *GitHubWriter) CreatePR(ctx context.Context, input PRInput) (*PROutput, error) {
+    token, err := w.getInstallationToken(ctx)  // uses w.app.GenerateJWT() + createInstallationToken()
+    if err != nil {
+        return nil, fmt.Errorf("getting installation token: %w", err)
+    }
+
+    client := github.NewClient(token, w.RepoOwner, w.RepoName)
+
+    sha, err := client.GetRef(ctx, "heads/main")
+    if err != nil {
+        return nil, fmt.Errorf("getting main branch: %w", err)
+    }
+
+    branch := github.GenerateBranchName("add", input.ContentType, input.TopicPath)
+    if err := client.CreateRef(ctx, "refs/heads/"+branch, sha); err != nil {
+        return nil, fmt.Errorf("creating branch: %w", err)
+    }
+
+    for path, content := range input.Files {
+        msg := fmt.Sprintf("Add %s for %s [oss-bot]", input.ContentType, input.TopicPath)
+        if err := client.PutContents(ctx, path, msg, content, branch); err != nil {
+            return nil, fmt.Errorf("committing %s: %w", path, err)
+        }
+    }
+
+    title := fmt.Sprintf("Add %s for %s", input.ContentType, input.TopicPath)
+    body  := github.BuildPRBodyFromInput(input)  // uses BuildPRBody + MergeDetails
+    num, url, err := client.CreatePull(ctx, title, body, branch, "main", []string{"provenance:ai-generated"})
+    if err != nil {
+        return nil, fmt.Errorf("creating PR: %w", err)
+    }
+    return &PROutput{Number: num, URL: url, Branch: branch}, nil
+}
+```
+
+**Gap 3 — `internal/github/contents.go`**: Add `GitHubContentsClient` as the production implementation of `ContentsClient`:
+
+```go
+// GitHubContentsClient is the production implementation of ContentsClient.
+// Uses stdlib net/http via Client.ReadFile — no third-party library needed.
+type GitHubContentsClient struct {
+    token string
+    owner string
+    repo  string
+}
+
+func NewGitHubContentsClient(token, owner, repo string) *GitHubContentsClient {
+    return &GitHubContentsClient{token: token, owner: owner, repo: repo}
+}
+
+func (c *GitHubContentsClient) ReadFile(owner, repo, path, ref string) ([]byte, error) {
+    client := NewClient(c.token, owner, repo)
+    return client.ReadFile(context.Background(), path, ref)
+}
+
+func (c *GitHubContentsClient) ListDir(owner, repo, path, ref string) ([]string, error) {
+    // GET /repos/{owner}/{repo}/contents/{path}?ref={ref} returns an array when path is a dir
+    client := NewClient(c.token, owner, repo)
+    return client.ListDir(context.Background(), path, ref)
+}
+```
+
+**Wire Gap 3 in `cmd/bot/main.go`**: After creating the pipeline, attach a `GitHubContentsReader` so the merge stage activates:
+
+```go
+// Attach content reader so the pipeline merge stage reads existing OSS repo files.
+contentsClient := gh.NewGitHubContentsClient(installToken, repoOwner, repoName)
+p = p.WithContentReader(&gh.GitHubContentsReader{
+    Client: contentsClient,
+    Owner:  repoOwner,
+    Repo:   repoName,
+})
+```
+
+Where `GitHubContentsReader` adapts `ContentsClient` to the pipeline's `ContentReader` interface:
+
+```go
+// GitHubContentsReader adapts ContentsClient to the pipeline.ContentReader interface.
+type GitHubContentsReader struct {
+    Client ContentsClient
+    Owner  string
+    Repo   string
+}
+
+func (r *GitHubContentsReader) ReadFile(path, ref string) ([]byte, error) {
+    return r.Client.ReadFile(r.Owner, r.Repo, path, ref)
+}
+```
+
 #### Day 25 Validation
 
 ```bash
@@ -6157,6 +6358,10 @@ docker stop $(docker ps -q --filter ancestor=oss-bot)
 
 #### Day 25 Exit Criteria
 
+- [ ] `internal/github/client.go` + tests — `GetRef`, `CreateRef`, `PutContents`, `CreatePull`, `ReadFile` using stdlib `net/http` with `httptest` mocks
+- [ ] `GitHubWriter.CreatePR` implemented and tested — creates branch, commits files, opens PR
+- [ ] `GitHubContentsClient` implemented — real `ContentsClient` using stdlib HTTP
+- [ ] `GitHubContentsReader` wired in `cmd/bot/main.go` — merge stage now activates for bot commands
 - [ ] `deploy/docker/Dockerfile` — multi-stage build produces working image
 - [ ] `docker-compose.yml` — bot + Tika sidecar + optional Ollama
 - [ ] `scripts/test-webhook.sh` — sends valid test webhook

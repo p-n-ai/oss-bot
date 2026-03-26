@@ -17,7 +17,7 @@ All tools share a single AI content generation pipeline: Context Building -> AI 
 ### Backend (Go)
 - **Language:** Go >= 1.22
 - **CLI Framework:** `spf13/cobra`
-- **GitHub API:** `google/go-github/v62`
+- **GitHub API:** stdlib `net/http` (direct REST calls — no third-party GitHub client library; consistent with existing bot code)
 - **YAML:** `gopkg.in/yaml.v3`
 - **JSON Schema:** `santhosh-tekuri/jsonschema/v5`
 - **JWT Auth:** `golang-jwt/jwt/v5`
