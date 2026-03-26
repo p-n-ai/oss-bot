@@ -63,11 +63,11 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W4D19-1` | `internal/generator/teaching_notes.go` — generate teaching notes for a topic: build context → inject into template → call AI → parse markdown → validate → write file | 🤖 | ⬜ | |
-| `B-W4D19-2` | `internal/generator/assessments.go` — generate N assessment questions: build context → inject → call AI → parse YAML → validate against schema → retry if invalid → write file | 🤖 | ⬜ | |
-| `B-W4D19-3` | `internal/generator/examples.go` — generate worked examples with step-by-step solutions | 🤖 | ⬜ | |
-| `B-W4D19-4` | `internal/pipeline/pipeline.go` — unified orchestrator: all interfaces call `pipeline.Execute()` with mode (Preview/WriteFS/CreatePR). `internal/output/writer.go` — `LocalWriter` (CLI) + `GitHubWriter` (Bot/Web) | 🤖 | ⬜ | |
-| `B-W4D19-5` | Wire CLI commands via pipeline: `oss generate teaching-notes`, `oss generate assessments` | 🤖 | ⬜ | |
+| `B-W4D19-1` | `internal/generator/teaching_notes.go` — generate teaching notes for a topic: build context → inject into template → call AI → parse markdown → validate → write file | 🤖 | ✅ | TDD: curriculum-agnostic prompts, CFU/Trap/Strategies structure from real OSS content |
+| `B-W4D19-2` | `internal/generator/assessments.go` — generate N assessment questions: build context → inject → call AI → parse YAML → validate against schema → retry if invalid → write file | 🤖 | ✅ | TDD: tp_level, kbat, multiple answer types aligned with real OSS content |
+| `B-W4D19-3` | `internal/generator/examples.go` — generate worked examples with step-by-step solutions | 🤖 | ✅ | TDD: worked_examples format with real_world_analogy, misconception_alert from real OSS content. + prompts/examples.md |
+| `B-W4D19-4` | `internal/pipeline/pipeline.go` — unified orchestrator: all interfaces call `pipeline.Execute()` with mode (Preview/WriteFS/CreatePR). `internal/output/writer.go` — `LocalWriter` (CLI) + `GitHubWriter` (Bot/Web) | 🤖 | ✅ | TDD: 3 pipeline tests. GitHubWriter placeholder for Week 5 |
+| `B-W4D19-5` | Wire CLI commands via pipeline: `oss generate teaching-notes`, `oss generate assessments` | 🤖 | ✅ | All 3 generate commands wired via shared runGenerate + pipeline.Execute |
 
 ### Day 20 (Fri) — Translation + Testing
 

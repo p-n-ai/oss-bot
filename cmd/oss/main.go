@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
+	"github.com/p-n-ai/oss-bot/internal/ai"
+	"github.com/p-n-ai/oss-bot/internal/output"
+	"github.com/p-n-ai/oss-bot/internal/pipeline"
 	"github.com/p-n-ai/oss-bot/internal/validator"
 	"github.com/spf13/cobra"
 )
@@ -58,23 +63,19 @@ func generateCmd() *cobra.Command {
 
 func generateTeachingNotesCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "teaching-notes <topic-path>",
+		Use:   "teaching-notes <topic-id>",
 		Short: "Generate teaching notes for a topic",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("not yet implemented")
-		},
+		RunE:  runGenerate("teaching_notes"),
 	}
 }
 
 func generateAssessmentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "assessments <topic-path>",
+		Use:   "assessments <topic-id>",
 		Short: "Generate assessment questions for a topic",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("not yet implemented")
-		},
+		RunE:  runGenerate("assessments"),
 	}
 	cmd.Flags().IntP("count", "c", 5, "Number of questions to generate")
 	cmd.Flags().StringP("difficulty", "d", "medium", "Difficulty level: easy, medium, hard")
@@ -82,16 +83,12 @@ func generateAssessmentsCmd() *cobra.Command {
 }
 
 func generateExamplesCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "examples <topic-path>",
+	return &cobra.Command{
+		Use:   "examples <topic-id>",
 		Short: "Generate worked examples for a topic",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("not yet implemented")
-		},
+		RunE:  runGenerate("examples"),
 	}
-	cmd.Flags().IntP("count", "c", 3, "Number of examples to generate")
-	return cmd
 }
 
 func qualityCmd() *cobra.Command {
@@ -238,6 +235,68 @@ func runQuality(cmd *cobra.Command, args []string) error {
 		fmt.Println("No topic files found.")
 	}
 	return nil
+}
+
+// runGenerate returns a RunE function for any generate subcommand.
+func runGenerate(contributionType string) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		topicID := args[0]
+		repoPath := os.Getenv("OSS_REPO_PATH")
+		if repoPath == "" {
+			repoPath = "."
+		}
+		promptsDir := os.Getenv("OSS_PROMPTS_DIR")
+		if promptsDir == "" {
+			promptsDir = "prompts/"
+		}
+
+		provider, err := createAIProvider()
+		if err != nil {
+			return err
+		}
+
+		p := pipeline.New(provider, &output.LocalWriter{}, promptsDir, repoPath)
+
+		opts := make(map[string]string)
+		if contributionType == "assessments" {
+			count, _ := cmd.Flags().GetInt("count")
+			difficulty, _ := cmd.Flags().GetString("difficulty")
+			opts["count"] = strconv.Itoa(count)
+			opts["difficulty"] = difficulty
+		}
+
+		result, err := p.Execute(context.Background(), pipeline.Request{
+			TopicPath:        topicID,
+			ContributionType: contributionType,
+			Mode:             pipeline.ModePreview,
+			OutputDir:        repoPath,
+			Options:          opts,
+			Source:           "cli",
+		})
+		if err != nil {
+			return err
+		}
+
+		fmt.Println(result.StructuredOutput)
+
+		if len(result.ValidationErrors) > 0 {
+			fmt.Fprintf(os.Stderr, "\nValidation warnings:\n")
+			for _, e := range result.ValidationErrors {
+				fmt.Fprintf(os.Stderr, "  ⚠ %s\n", e)
+			}
+		}
+		return nil
+	}
+}
+
+// createAIProvider creates an AI provider from environment variables.
+func createAIProvider() (ai.Provider, error) {
+	providerName := os.Getenv("OSS_AI_PROVIDER")
+	if providerName == "" {
+		return nil, fmt.Errorf("OSS_AI_PROVIDER is required (set to: openai, anthropic, or ollama)")
+	}
+	apiKey := os.Getenv("OSS_AI_API_KEY")
+	return ai.NewProvider(providerName, apiKey)
 }
 
 func printResult(r validator.ValidationResult) {

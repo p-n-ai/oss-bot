@@ -71,11 +71,12 @@ type Misconception struct {
 
 // GenerationContext holds all context needed for AI content generation.
 type GenerationContext struct {
-	Topic         Topic
-	Prerequisites []Topic
-	Siblings      []Topic
-	ExistingNotes string
-	SchemaRules   string
+	Topic              Topic
+	Prerequisites      []Topic
+	Siblings           []Topic
+	ExistingNotes      string
+	SchemaRules        string
+	ValidationFeedback []string // Populated on retry after validation failure
 }
 
 // BuildContext assembles the generation context for a given topic ID.
