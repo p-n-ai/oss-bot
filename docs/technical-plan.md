@@ -97,7 +97,7 @@ type AIProvider interface {
 
 | Component | Technology | Version | Rationale |
 |-----------|-----------|---------|-----------|
-| **Framework** | Next.js (App Router) | 15 | Consistent with P&AI Bot admin panel. SSR for SEO. |
+| **Framework** | Next.js (App Router) | 16 | Consistent with P&AI Bot admin panel. SSR for SEO. |
 | **Language** | TypeScript | 5.x | Type safety, form handling. |
 | **UI Components** | shadcn/ui | latest | Consistent design system across P&AI ecosystem. |
 | **Styling** | Tailwind CSS | 3.x | Utility-first, matching other P&AI frontends. |
