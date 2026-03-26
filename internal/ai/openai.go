@@ -11,9 +11,10 @@ import (
 
 // OpenAIProvider implements the Provider interface for OpenAI.
 type OpenAIProvider struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
+	apiKey       string
+	baseURL      string
+	defaultModel string // overrides "gpt-4o" default when set (used by ReasoningProvider)
+	client       *http.Client
 }
 
 // NewOpenAIProvider creates a new OpenAI provider.
@@ -31,7 +32,11 @@ func NewOpenAIProvider(apiKey string) (*OpenAIProvider, error) {
 func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	model := req.Model
 	if model == "" {
-		model = "gpt-4o"
+		if p.defaultModel != "" {
+			model = p.defaultModel
+		} else {
+			model = "gpt-4o"
+		}
 	}
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {

@@ -43,6 +43,14 @@ var bloomVerbs = map[string]string{
 	"design": "create", "create": "create", "formulate": "create",
 	"compose": "create", "develop": "create", "invent": "create",
 	"plan": "create", "produce": "create", "propose": "create",
+	// Science verbs
+	"hypothesize": "analyze", "experiment": "apply", "observe": "understand",
+	"measure": "apply", "predict": "analyze",
+	// Humanities verbs
+	"contextualize": "analyze", "empathize": "understand",
+	// General cross-subject verbs
+	"synthesize": "create", "reflect": "evaluate", "research": "analyze",
+	"collaborate": "apply", "present": "apply",
 }
 
 // bloomOrder defines the hierarchy of Bloom's levels (index = rank).
