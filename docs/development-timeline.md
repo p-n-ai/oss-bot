@@ -53,11 +53,11 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W4D18-1` | `internal/ai/` — same Provider interface as pai-bot (OpenAI, Anthropic, Ollama) | 🤖 | ⬜ | |
-| `B-W4D18-2` | `internal/generator/context.go` — Context Builder: load target topic + parent subject + syllabus + prerequisites + siblings + schema rules. Build ~8K token context. | 🤖 | ⬜ | |
-| `B-W4D18-3` | Create `prompts/teaching_notes.md` — template with variables: {{topic}}, {{subject}}, {{prerequisites}}, {{style_examples}}. Encodes pedagogical best practices for KSSM. | 🤖 | ⬜ | |
-| `B-W4D18-4` | Create `prompts/assessments.md` — template for generating quiz questions with rubrics, hints, distractors, Bloom's levels, KSSM exam format | 🤖 | ⬜ | |
-| `B-W4D18-5` | 🧑 Review and heavily edit prompt templates — these define teaching quality | 🧑 Education Lead (2hr) | ⬜ | |
+| `B-W4D18-1` | `internal/ai/` — same Provider interface as pai-bot (OpenAI, Anthropic, Ollama) | 🤖 | ✅ | TDD: provider.go, mock.go, openai.go, anthropic.go, ollama.go |
+| `B-W4D18-2` | `internal/generator/context.go` — Context Builder: load target topic + parent subject + syllabus + prerequisites + siblings + schema rules. Build ~8K token context. | 🤖 | ✅ | TDD: 3 tests passing |
+| `B-W4D18-3` | Create `prompts/teaching_notes.md` — template with variables: {{topic}}, {{subject}}, {{prerequisites}}, {{style_examples}}. Encodes pedagogical best practices for KSSM. | 🤖 | ✅ | |
+| `B-W4D18-4` | Create `prompts/assessments.md` — template for generating quiz questions with rubrics, hints, distractors, Bloom's levels, KSSM exam format | 🤖 | ✅ | |
+| `B-W4D18-5` | 🧑 Review and heavily edit prompt templates — these define teaching quality | 🧑 Education Lead (2hr) | ⬜ | Awaiting human review |
 
 ### Day 19 (Thu) — Generation Commands
 
