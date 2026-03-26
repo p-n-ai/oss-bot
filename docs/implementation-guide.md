@@ -3593,11 +3593,19 @@ type BotCommand struct {
 	Action     string   // "add", "translate", "scaffold", "import", "quality", "enrich"
 	ContentType string  // "teaching notes", "assessments", "examples"
 	TopicPath  string   // Path or ID of the target topic
-	Options    map[string]string // Additional options (count, difficulty, language, etc.)
+	Options    map[string]string // Additional options (count, difficulty, language, url, etc.)
 	User       string   // GitHub username who issued the command
 	IssueNum   int      // Issue number where the command was posted
 	RepoFullName string // "owner/repo"
 	CommentBody  string // Full comment body (for enrich command)
+	Attachments []Attachment // File attachments (for import command)
+}
+
+// Attachment represents a file attached to a GitHub comment.
+type Attachment struct {
+	URL      string // Download URL of the attachment
+	FileName string // Original filename (e.g., "syllabus.pdf")
+	MimeType string // Detected MIME type
 }
 
 // CommandHandler processes a parsed bot command.
@@ -3775,6 +3783,18 @@ func TestParseCommand(t *testing.T) {
 			wantTopic:  "india/cbse/mathematics-class10",
 		},
 		{
+			name:       "import-url",
+			input:      "@oss-bot import https://example.org/curriculum-spec",
+			wantAction: "import",
+			wantTopic:  "",
+		},
+		{
+			name:       "import-attachment",
+			input:      "@oss-bot import",
+			wantAction: "import",
+			wantTopic:  "",
+		},
+		{
 			name:    "no-bot-mention",
 			input:   "Just a regular comment",
 			wantErr: true,
@@ -3882,7 +3902,13 @@ func ParseCommand(body string) (*BotCommand, error) {
 
 	case strings.HasPrefix(rest, "import"):
 		cmd.Action = "import"
-		cmd.TopicPath = strings.TrimSpace(strings.TrimPrefix(rest, "import "))
+		remaining := strings.TrimSpace(strings.TrimPrefix(rest, "import"))
+		// If remaining looks like a URL, store it as an option
+		if strings.HasPrefix(remaining, "http://") || strings.HasPrefix(remaining, "https://") {
+			cmd.Options["url"] = remaining
+		} else {
+			cmd.TopicPath = remaining
+		}
 
 	case strings.HasPrefix(rest, "enrich"):
 		cmd.Action = "enrich"
@@ -3945,7 +3971,7 @@ go test -v ./internal/parser/...
 
 - [ ] `internal/github/app.go` + tests — JWT generation from private key
 - [ ] `internal/github/webhook.go` + tests — HMAC verification, event routing
-- [ ] Command parser handles: add, translate, scaffold, quality, import, enrich
+- [ ] Command parser handles: add, translate, scaffold, quality, import (URL and attachment), enrich
 - [ ] 🧑 GitHub App registered and installed on p-n-ai/oss
 - [ ] `go test ./...` passes with zero failures
 
@@ -4231,55 +4257,69 @@ kill %1
 
 ---
 
-### Day 23 — Document Import (Hybrid) + More Commands
+### Day 23 — Content Import (URL, Upload, Text) + More Commands
 
 **Entry criteria:** Day 22 complete. Bot server starts and handles webhooks.
 
-#### Architecture Decision: Hybrid Document Parsing
+#### Architecture Decision: Three Input Methods
 
-The project uses a **hybrid approach** for document import:
-- **CLI (`oss import --pdf`):** Uses `ledongthuc/pdf` (Go-native). Lightweight, no external dependencies. PDF-only.
-- **Server (Bot + Web Portal):** Uses Apache Tika as a Docker sidecar via `google/go-tika`. Supports PDF, DOCX, PPTX, XLSX, HTML, and 1000+ other formats.
+Users can contribute content via three input methods, all supported across every interface (Web Portal, GitHub Bot, CLI):
 
-Both implementations share the `DocumentParser` interface, allowing the import pipeline to work identically regardless of the parser backend.
+1. **URL** — paste a link to a curriculum page or hosted document. The system fetches the page, extracts text, and structures it into YAML.
+2. **Text** — type or paste content directly (structured or freeform natural language, any language).
+3. **Upload** — attach a file. Supported formats: PDF (`.pdf`), Word (`.docx`), PowerPoint (`.pptx`), plain text (`.txt`), and images (`.png`, `.jpg`, `.jpeg` — text extracted via OCR).
+
+#### Architecture Decision: Hybrid Content Extraction
+
+The project uses a **hybrid approach** for content extraction:
+- **CLI:** Uses `ledongthuc/pdf` (Go-native) for PDFs and Tesseract for image OCR. Lightweight, no Docker needed.
+- **Server (Bot + Web Portal):** Uses Apache Tika as a Docker sidecar via `google/go-tika`. Handles PDF, DOCX, PPTX, TXT, images (OCR), and 1000+ other formats.
+- **URL fetching:** Shared across CLI and server. Uses Go `net/http` with optional headless rendering for JavaScript-heavy pages.
+
+All extractors share the `ContentExtractor` interface, allowing the import pipeline to work identically regardless of source.
 
 **Why hybrid:**
 - CLI stays lightweight and self-contained (single Go binary, no Docker)
-- Server gets broad format support where it matters (teachers submit DOCX, PPTX, web links — not just PDF)
+- Server gets broad format support where it matters (teachers submit DOCX, PPTX, images — not just PDF)
 - Apache Tika is battle-tested (15+ years, Apache Foundation), has a native Go client (`google/go-tika`), and runs as a simple Docker sidecar
+- URL fetching enables importing from government curriculum pages, publisher sites, and online specifications
 
 #### Tasks
 
 | # | Task ID | Task | Owner | Files Created |
 |---|---------|------|-------|---------------|
-| 23.1 | `B-W5D23-1` | Document import prompt template | 🤖 | `prompts/document_import.md` |
-| 23.2 | `B-W5D23-2` | DocumentParser interface | 🤖 | `internal/parser/document.go` |
+| 23.1 | `B-W5D23-1` | Content import prompt template | 🤖 | `prompts/document_import.md` |
+| 23.2 | `B-W5D23-2` | ContentExtractor interface | 🤖 | `internal/parser/document.go` |
 | 23.3 | `B-W5D23-3` | Go-native PDF extraction (CLI) | 🤖 | `internal/parser/pdf.go` |
 | 23.4 | `B-W5D23-4` | Apache Tika client (Server) | 🤖 | `internal/parser/tika.go` |
-| 23.5 | `B-W5D23-5` | Scaffolder (document → syllabus structure) | 🤖 | `internal/generator/scaffolder.go` |
-| 23.6 | `B-W5D23-6` | `@oss-bot quality` command implementation | 🤖 | Update bot handlers |
+| 23.5 | `B-W5D23-5` | URL fetcher | 🤖 | `internal/parser/url.go` |
+| 23.6 | `B-W5D23-6` | Image OCR extraction | 🤖 | `internal/parser/image.go` |
+| 23.7 | `B-W5D23-7` | Scaffolder (any source → syllabus structure) | 🤖 | `internal/generator/scaffolder.go` |
+| 23.8 | `B-W5D23-8` | `@oss-bot quality` command implementation | 🤖 | Update bot handlers |
 
-#### 23.1 — Document Import Prompt Template
+#### 23.1 — Content Import Prompt Template
 
 **File:** `prompts/document_import.md`
 
 ```markdown
-# Document Import Prompt
+# Content Import Prompt
 
-You are an expert at extracting curriculum structure from educational documents.
+You are an expert at extracting curriculum structure from educational sources.
 
 ## Context
 
-**Source document content (pre-extracted text):**
+**Source content (pre-extracted text):**
 {{document_text}}
 
+**Source type:** {{source_type}}  <!-- "url", "pdf", "docx", "pptx", "txt", "image", "text" -->
+**Source URL (if applicable):** {{source_url}}
 **Source format:** {{source_format}}
 **Target board:** {{board}}
 **Target level:** {{level}}
 
 ## Instructions
 
-Extract the curriculum structure from the document text and output as YAML:
+Extract the curriculum structure from the source text and output as YAML:
 
 1. Identify subjects/strands
 2. Identify individual topics within each subject
@@ -4306,25 +4346,43 @@ subjects:
         prerequisites: []
 ```
 
-#### 23.2 — DocumentParser Interface (TDD)
+#### 23.2 — ContentExtractor Interface (TDD)
 
 **File:** `internal/parser/document.go`
 
 ```go
-// Package parser handles input parsing (document extraction, natural language, commands).
+// Package parser handles input parsing (content extraction, natural language, commands).
 package parser
 
 import "context"
 
-// DocumentParser extracts text from documents for the AI import pipeline.
-// CLI uses PDFParser (Go-native, standalone). Server uses TikaParser (multi-format).
-type DocumentParser interface {
-	// Extract converts a document to plain text for AI processing.
-	// input is the raw file bytes. mimeType hints at the format (e.g., "application/pdf").
+// ContentExtractor extracts text from various sources for the AI import pipeline.
+// Implementations: PDFParser (CLI), TikaParser (server), URLFetcher, ImageParser.
+type ContentExtractor interface {
+	// Extract converts a source to plain text for AI processing.
+	// input is the raw file bytes (for files/images) or nil (for URL fetcher).
+	// mimeType hints at the format (e.g., "application/pdf", "image/png").
 	Extract(ctx context.Context, input []byte, mimeType string) (string, error)
 
-	// SupportedTypes returns the MIME types this parser handles.
+	// SupportedTypes returns the MIME types this extractor handles.
 	SupportedTypes() []string
+}
+
+// URLFetcher fetches and extracts text from web pages.
+type URLFetcher interface {
+	// Fetch retrieves a web page and returns its text content.
+	// Handles static HTML and optionally renders JavaScript-heavy pages.
+	Fetch(ctx context.Context, url string) (string, error)
+}
+
+// InputSource represents the three ways users can provide content.
+type InputSource struct {
+	Type     string // "url", "text", "file"
+	URL      string // For URL input
+	Text     string // For text (copy-paste) input
+	FileData []byte // For file upload input
+	FileName string // Original filename (used to detect MIME type)
+	MimeType string // MIME type of uploaded file
 }
 ```
 
@@ -4578,18 +4636,253 @@ func (p *TikaParser) SupportedTypes() []string {
 		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",   // DOCX
 		"application/vnd.openxmlformats-officedocument.presentationml.presentation", // PPTX
 		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",         // XLSX
+		"text/plain",       // TXT
 		"text/html",
+		"image/png",        // Images (Tika uses Tesseract OCR)
+		"image/jpeg",       // JPG/JPEG
 		"application/rtf",
 		"application/epub+zip",
 	}
 }
 ```
 
-#### 23.5 — Scaffolder (TDD)
+#### 23.5 — URL Fetcher (TDD)
+
+**File:** `internal/parser/url_test.go`
+
+```go
+package parser_test
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/p-n-ai/oss-bot/internal/parser"
+)
+
+func TestURLFetcher(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><body><h1>Mathematics Syllabus</h1><p>Topic 1: Algebra</p></body></html>`))
+	}))
+	defer server.Close()
+
+	f := parser.NewURLFetcher()
+
+	t.Run("fetch-html-page", func(t *testing.T) {
+		text, err := f.Fetch(context.Background(), server.URL)
+		if err != nil {
+			t.Fatalf("Fetch() error = %v", err)
+		}
+		if text == "" {
+			t.Error("Fetch() returned empty text")
+		}
+	})
+
+	t.Run("invalid-url", func(t *testing.T) {
+		_, err := f.Fetch(context.Background(), "http://localhost:1/nonexistent")
+		if err == nil {
+			t.Error("Fetch() should error for unreachable URL")
+		}
+	})
+
+	t.Run("empty-url", func(t *testing.T) {
+		_, err := f.Fetch(context.Background(), "")
+		if err == nil {
+			t.Error("Fetch() should error for empty URL")
+		}
+	})
+}
+```
+
+**File:** `internal/parser/url.go`
+
+```go
+package parser
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"golang.org/x/net/html"
+)
+
+// HTTPURLFetcher implements URLFetcher using Go net/http.
+// Fetches web pages and extracts visible text content.
+type HTTPURLFetcher struct {
+	client *http.Client
+}
+
+// NewURLFetcher creates a new URL fetcher with sensible defaults.
+func NewURLFetcher() *HTTPURLFetcher {
+	return &HTTPURLFetcher{
+		client: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+func (f *HTTPURLFetcher) Fetch(ctx context.Context, url string) (string, error) {
+	if url == "" {
+		return "", fmt.Errorf("empty URL")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("User-Agent", "oss-bot/1.0 (curriculum importer)")
+
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetching URL %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("URL returned status %d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+
+	// If the response is HTML, extract text from the DOM
+	if strings.Contains(contentType, "text/html") {
+		return extractTextFromHTML(resp.Body)
+	}
+
+	// For other text types, read directly
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
+	return string(body), nil
+}
+
+// extractTextFromHTML walks the HTML DOM and extracts visible text.
+func extractTextFromHTML(r io.Reader) (string, error) {
+	doc, err := html.Parse(r)
+	if err != nil {
+		return "", fmt.Errorf("parsing HTML: %w", err)
+	}
+
+	var sb strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		// Skip script, style, and nav elements
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "script", "style", "nav", "footer", "header":
+				return
+			}
+		}
+		if n.Type == html.TextNode {
+			text := strings.TrimSpace(n.Data)
+			if text != "" {
+				sb.WriteString(text)
+				sb.WriteString(" ")
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
+	return strings.TrimSpace(sb.String()), nil
+}
+```
+
+#### 23.6 — Image OCR Extraction (TDD)
+
+**File:** `internal/parser/image_test.go`
+
+```go
+package parser_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/p-n-ai/oss-bot/internal/parser"
+)
+
+func TestImageParser(t *testing.T) {
+	p := parser.NewImageParser()
+
+	t.Run("supported-types", func(t *testing.T) {
+		types := p.SupportedTypes()
+		if len(types) < 2 {
+			t.Errorf("SupportedTypes() should include png and jpeg, got %v", types)
+		}
+	})
+
+	t.Run("empty-input", func(t *testing.T) {
+		_, err := p.Extract(context.Background(), nil, "image/png")
+		if err == nil {
+			t.Error("Extract() should error for empty input")
+		}
+	})
+
+	t.Run("non-image-type", func(t *testing.T) {
+		_, err := p.Extract(context.Background(), []byte("not an image"), "application/pdf")
+		if err == nil {
+			t.Error("Extract() should error for non-image MIME type")
+		}
+	})
+}
+```
+
+**File:** `internal/parser/image.go`
+
+```go
+package parser
+
+import (
+	"context"
+	"fmt"
+	"strings"
+)
+
+// ImageParser implements ContentExtractor for image files using OCR.
+// CLI uses Tesseract (if available). Server uses Tika (which includes Tesseract).
+type ImageParser struct{}
+
+// NewImageParser creates a new image parser with OCR support.
+func NewImageParser() *ImageParser {
+	return &ImageParser{}
+}
+
+func (p *ImageParser) Extract(ctx context.Context, input []byte, mimeType string) (string, error) {
+	if len(input) == 0 {
+		return "", fmt.Errorf("empty input")
+	}
+	if !p.isImageType(mimeType) {
+		return "", fmt.Errorf("unsupported MIME type for ImageParser: %s", mimeType)
+	}
+
+	// OCR extraction using Tesseract CLI
+	// TODO: Implement with os/exec call to tesseract binary
+	return "", fmt.Errorf("image OCR extraction not yet implemented — install tesseract")
+}
+
+func (p *ImageParser) SupportedTypes() []string {
+	return []string{"image/png", "image/jpeg"}
+}
+
+func (p *ImageParser) isImageType(mimeType string) bool {
+	return strings.HasPrefix(mimeType, "image/")
+}
+```
+
+#### 23.7 — Scaffolder (TDD)
 
 **File:** `internal/generator/scaffolder_test.go` and `internal/generator/scaffolder.go`
 
-The scaffolder takes extracted document text (from either PDFParser or TikaParser) and generates a complete syllabus directory structure with Level 0-1 topic stubs.
+The scaffolder takes extracted content (from any source — URL, file, or text) and generates a complete syllabus directory structure with Level 0-1 topic stubs.
 
 #### Day 23 Validation
 
@@ -4599,15 +4892,17 @@ go test ./...
 
 #### Day 23 Exit Criteria
 
-- [ ] `prompts/document_import.md` created
-- [ ] `internal/parser/document.go` — `DocumentParser` interface
+- [ ] `prompts/document_import.md` created (supports URL, file, and text sources)
+- [ ] `internal/parser/document.go` — `ContentExtractor` interface + `InputSource` struct
 - [ ] `internal/parser/pdf.go` + tests — Go-native PDF extraction (CLI)
-- [ ] `internal/parser/tika.go` + tests — Apache Tika multi-format extraction (server)
-- [ ] `internal/generator/scaffolder.go` + tests — generates syllabus structure from parsed content
+- [ ] `internal/parser/tika.go` + tests — Apache Tika multi-format extraction including images (server)
+- [ ] `internal/parser/url.go` + tests — URL fetcher with HTML text extraction
+- [ ] `internal/parser/image.go` + tests — Image OCR extraction (PNG, JPG/JPEG)
+- [ ] `internal/generator/scaffolder.go` + tests — generates syllabus structure from any source
 - [ ] `@oss-bot quality` responds with quality report as issue comment
 - [ ] `go test ./...` passes
 
-**Progress:** CLI + Bot + document import (hybrid) + scaffolder | 5 packages | 5 prompt templates
+**Progress:** CLI + Bot + content import (URL, upload, text) + scaffolder | 5 packages | 5 prompt templates
 
 ---
 
@@ -5048,8 +5343,11 @@ export interface PreviewRequest {
   syllabusId: string;
   topicId: string;
   contributionType: 'teaching_note' | 'assessment' | 'example' | 'misconception' | 'correction' | 'translation';
-  content: string;
+  inputMethod: 'text' | 'url' | 'file';
+  content: string;       // For text input: the pasted/typed content
+  url?: string;          // For URL input: the page to fetch
   language?: string;
+  // File uploads use multipart/form-data via a separate uploadFile() call
 }
 
 export interface PreviewResponse {
@@ -5089,6 +5387,26 @@ export interface Curriculum {
   subjects: { id: string; name: string; topics: { id: string; name: string; qualityLevel: number }[] }[];
 }
 
+export async function uploadFile(
+  file: File,
+  syllabusId: string,
+  topicId: string,
+  contributionType: PreviewRequest['contributionType'],
+): Promise<PreviewResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('syllabusId', syllabusId);
+  formData.append('topicId', topicId);
+  formData.append('contributionType', contributionType);
+
+  const res = await fetch(`${API_BASE}/api/preview`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
+  return res.json();
+}
+
 export async function getCurricula(): Promise<Curriculum[]> {
   const res = await fetch(`${API_BASE}/api/curricula`);
   if (!res.ok) throw new Error(`Failed to fetch curricula: ${res.statusText}`);
@@ -5105,14 +5423,16 @@ export async function getCurricula(): Promise<Curriculum[]> {
 
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { getCurricula, preview, submit, PreviewRequest } from '@/lib/api';
+import { getCurricula, preview, submit, uploadFile, PreviewRequest } from '@/lib/api';
 
 export default function ContributePage() {
   const [step, setStep] = useState<'select' | 'write' | 'preview' | 'done'>('select');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [form, setForm] = useState<PreviewRequest>({
     syllabusId: '',
     topicId: '',
     contributionType: 'teaching_note',
+    inputMethod: 'text',
     content: '',
   });
 
@@ -5120,6 +5440,11 @@ export default function ContributePage() {
 
   const previewMutation = useMutation({
     mutationFn: preview,
+    onSuccess: () => setStep('preview'),
+  });
+
+  const uploadFileMutation = useMutation({
+    mutationFn: (file: File) => uploadFile(file, form.syllabusId, form.topicId, form.contributionType),
     onSuccess: () => setStep('preview'),
   });
 
@@ -5149,22 +5474,90 @@ export default function ContributePage() {
 
       {step === 'write' && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold">2. Write Your Contribution</h2>
-          <p className="text-gray-600">
-            Write in any language. Our AI will structure it into the correct format.
-          </p>
-          <textarea
-            className="w-full h-48 p-3 border rounded"
-            placeholder="Share your teaching experience, a common misconception, an example problem..."
-            value={form.content}
-            onChange={(e) => setForm({ ...form, content: e.target.value })}
-          />
+          <h2 className="text-lg font-semibold">2. Provide Your Content</h2>
+
+          {/* Input method tabs */}
+          <div className="flex gap-2 border-b">
+            {(['text', 'url', 'file'] as const).map((method) => (
+              <button
+                key={method}
+                onClick={() => setForm({ ...form, inputMethod: method })}
+                className={`px-4 py-2 ${form.inputMethod === method ? 'border-b-2 border-blue-600 font-semibold' : 'text-gray-500'}`}
+              >
+                {method === 'text' ? 'Type / Paste' : method === 'url' ? 'Paste URL' : 'Upload File'}
+              </button>
+            ))}
+          </div>
+
+          {/* Text input */}
+          {form.inputMethod === 'text' && (
+            <>
+              <p className="text-gray-600">
+                Write in any language. Our AI will structure it into the correct format.
+              </p>
+              <textarea
+                className="w-full h-48 p-3 border rounded"
+                placeholder="Share your teaching experience, a common misconception, an example problem..."
+                value={form.content}
+                onChange={(e) => setForm({ ...form, content: e.target.value })}
+              />
+            </>
+          )}
+
+          {/* URL input */}
+          {form.inputMethod === 'url' && (
+            <>
+              <p className="text-gray-600">
+                Paste a link to a curriculum page, syllabus specification, or educational resource.
+              </p>
+              <input
+                type="url"
+                className="w-full p-3 border rounded"
+                placeholder="https://example.org/curriculum-specification"
+                value={form.url || ''}
+                onChange={(e) => setForm({ ...form, url: e.target.value })}
+              />
+            </>
+          )}
+
+          {/* File upload input */}
+          {form.inputMethod === 'file' && (
+            <>
+              <p className="text-gray-600">
+                Upload a PDF, Word document, PowerPoint, text file, or image (PNG, JPG).
+              </p>
+              <input
+                type="file"
+                accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg"
+                className="w-full p-3 border rounded"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setSelectedFile(file);
+                }}
+              />
+              {selectedFile && (
+                <p className="text-sm text-gray-500">Selected: {selectedFile.name}</p>
+              )}
+            </>
+          )}
+
           <button
-            onClick={() => previewMutation.mutate(form)}
-            disabled={!form.content || previewMutation.isPending}
+            onClick={() => {
+              if (form.inputMethod === 'file' && selectedFile) {
+                uploadFileMutation.mutate(selectedFile);
+              } else {
+                previewMutation.mutate(form);
+              }
+            }}
+            disabled={
+              (form.inputMethod === 'text' && !form.content) ||
+              (form.inputMethod === 'url' && !form.url) ||
+              (form.inputMethod === 'file' && !selectedFile) ||
+              previewMutation.isPending || uploadFileMutation.isPending
+            }
             className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
           >
-            {previewMutation.isPending ? 'Processing...' : 'Preview'}
+            {(previewMutation.isPending || uploadFileMutation.isPending) ? 'Processing...' : 'Preview'}
           </button>
         </div>
       )}
@@ -5269,12 +5662,16 @@ import (
 )
 
 // PreviewRequest is the web portal's preview request.
+// Supports three input methods: text (content field), URL (url field), or file (multipart upload).
 type PreviewRequest struct {
 	SyllabusID       string `json:"syllabusId"`
 	TopicID          string `json:"topicId"`
 	ContributionType string `json:"contributionType"`
-	Content          string `json:"content"`
+	InputMethod      string `json:"inputMethod"`          // "text", "url", or "file"
+	Content          string `json:"content,omitempty"`     // For text input
+	URL              string `json:"url,omitempty"`         // For URL input
 	Language         string `json:"language,omitempty"`
+	// File uploads are handled via multipart/form-data (not JSON)
 }
 
 // PreviewResponse returns the structured output and validation status.
@@ -5302,21 +5699,34 @@ func (h *PreviewHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.TopicID == "" || req.Content == "" {
-		http.Error(w, "topicId and content are required", http.StatusBadRequest)
+	if req.TopicID == "" {
+		http.Error(w, "topicId is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate that at least one input method has content
+	hasInput := req.Content != "" || req.URL != ""
+	if !hasInput {
+		// Check for multipart file upload
+		http.Error(w, "content, url, or file upload is required", http.StatusBadRequest)
 		return
 	}
 
 	slog.Info("preview requested",
 		"topic", req.TopicID,
 		"type", req.ContributionType,
+		"inputMethod", req.InputMethod,
 	)
 
 	// In full implementation:
-	// 1. Build context from topic
-	// 2. Parse contribution via AI
-	// 3. Validate structured output
-	// 4. Return preview
+	// 1. Extract text based on input method:
+	//    - "text": use content directly
+	//    - "url": fetch URL via URLFetcher, extract text
+	//    - "file": extract text via ContentExtractor (Tika for server)
+	// 2. Build context from topic
+	// 3. Parse contribution via AI
+	// 4. Validate structured output
+	// 5. Return preview
 
 	resp := PreviewResponse{
 		Structured:       "# Preview\n\nStructured output will appear here after AI processing.",
@@ -5814,7 +6224,7 @@ Write the oss-bot section of the 6-week report covering:
 | `internal/validator` | Day 16-17 | `validator.go`, `bloom.go`, `prerequisites.go`, `duplicates.go`, `quality.go` | JSON Schema validation, content quality checks |
 | `internal/ai` | Day 18 | `provider.go`, `mock.go`, `openai.go`, `anthropic.go`, `ollama.go` | AI provider interface (shared with P&AI Bot) |
 | `internal/generator` | Day 18-20 | `context.go`, `teaching_notes.go`, `assessments.go`, `examples.go`, `translator.go`, `scaffolder.go` | Content generation pipeline |
-| `internal/parser` | Day 23-24 | `document.go`, `pdf.go`, `tika.go`, `contribution.go` | DocumentParser interface, Go-native PDF (CLI), Tika multi-format (server), natural language parsing |
+| `internal/parser` | Day 23-24 | `document.go`, `pdf.go`, `tika.go`, `url.go`, `image.go`, `contribution.go` | ContentExtractor interface, Go-native PDF (CLI), Tika multi-format (server), URL fetcher, image OCR, natural language parsing |
 | `internal/github` | Day 21-22 | `app.go`, `webhook.go`, `pr.go`, `contents.go` | GitHub App auth, webhooks, PR creation |
 | `internal/api` | Day 24-28 | `router.go`, `preview.go`, `submit.go`, `feedback.go`, `curricula.go` | Web portal HTTP API |
 
@@ -5828,7 +6238,7 @@ Write the oss-bot section of the 6-week report covering:
 | `prompts/assessments.md` | Day 18 | Generate `.assessments.yaml` files |
 | `prompts/examples.md` | Day 19 | Generate `.examples.yaml` files |
 | `prompts/translation.md` | Day 20 | Translate topic files to other languages |
-| `prompts/document_import.md` | Day 23 | Extract curriculum structure from documents (PDF, DOCX, PPTX, HTML) |
+| `prompts/document_import.md` | Day 23 | Extract curriculum structure from any source (URL, PDF, DOCX, PPTX, TXT, images) |
 | `prompts/contribution_parser.md` | Day 24 | Parse natural language into structured data |
 
 ---
@@ -5862,7 +6272,9 @@ Write the oss-bot section of the 6-week report covering:
 | Teaching notes generation | <15s | `time go run ./cmd/oss generate teaching-notes F1-01` |
 | Assessment generation (5 questions) | <10s | `time go run ./cmd/oss generate assessments F1-01 -c 5` |
 | PDF import, CLI (50-page syllabus) | <60s | `time go run ./cmd/oss import --pdf test.pdf` |
-| Document import, server (50-page, any format) | <90s | Measure via API with DOCX/PPTX/HTML input |
+| URL import (fetch + extract) | <30s | `time go run ./cmd/oss import --url https://example.org/spec` |
+| Image OCR extraction | <15s | `time go run ./cmd/oss import --file photo.jpg` |
+| Document import, server (50-page, any format) | <90s | Measure via API with DOCX/PPTX/image input |
 | Bot webhook → PR created | <30s | Measure from webhook receipt to PR URL comment |
 | Web portal preview | <5s | Measure from submit to preview render |
 | CLI startup | <100ms | `time go run ./cmd/oss --help` |
@@ -5880,7 +6292,7 @@ Write the oss-bot section of the 6-week report covering:
 | 20 | 3 | ✅ | validate, generate (3), quality, translate | — | 4 | — |
 | 21 | 5 (+github, parser) | ✅ | All CLI | — | 4 | — |
 | 22 | 5 | ✅ | All CLI | — | 4 | — |
-| 23 | 5 | ✅ | All CLI + import | — | 5 | — |
+| 23 | 5 | ✅ | All CLI + import (URL, file, text) | — | 5 | — |
 | 24 | 6 (+api) | ✅ | All CLI | feedback | 6 | — |
 | 25 | 6 | ✅ | All CLI | feedback | 6 | ✅ |
 | 26 | 6 | ✅ | All CLI | feedback, preview, curricula | 6 | ✅ |
@@ -5896,6 +6308,6 @@ Write the oss-bot section of the 6-week report covering:
 | Week | 🤖 Claude Code | 🧑 Human | Total |
 |------|----------------|----------|-------|
 | 4 (Days 16-20) | 16 | 2 | 18 |
-| 5 (Days 21-25) | 14 | 2 | 16 |
+| 5 (Days 21-25) | 16 | 2 | 18 |
 | 6 (Days 26-30) | 10 | 2 | 12 |
-| **Total** | **40** | **6** | **46** |
+| **Total** | **42** | **6** | **48** |

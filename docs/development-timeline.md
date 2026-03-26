@@ -90,7 +90,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 |---------|------|-------|--------|--------|
 | `B-W5D21-1` | `internal/github/app.go` — GitHub App authentication (JWT from private key, installation token exchange) | 🤖 | ⬜ | |
 | `B-W5D21-2` | `internal/github/webhook.go` — webhook handler: verify HMAC signature, parse issue_comment events, extract @oss-bot commands | 🤖 | ⬜ | |
-| `B-W5D21-3` | `internal/parser/command.go` — parse bot commands: `add teaching notes`, `add N assessments`, `translate`, `scaffold`, `quality` | 🤖 | ⬜ | |
+| `B-W5D21-3` | `internal/parser/command.go` — parse bot commands: `add teaching notes`, `add N assessments`, `translate`, `scaffold`, `quality`, `import <url>`, `import` (with attachment) | 🤖 | ⬜ | |
 | `B-W5D21-4` | 🧑 Register GitHub App: p-n-ai org, webhook URL, permissions (Issues R/W, PRs R/W, Contents R/W) | 🧑 Human | ⬜ | |
 
 ### Day 22 (Tue) — Bot → PR Pipeline
@@ -102,16 +102,18 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D22-3` | Bot command flow: `@oss-bot add teaching notes for F2-01` → load topic from GitHub → run generation pipeline → create branch → commit files → open PR with provenance:ai-generated label | 🤖 | ⬜ | |
 | `B-W5D22-4` | Bot responds to issue with PR link: "I've generated teaching notes for F2-01 and opened #PR. Please review for accuracy." | 🤖 | ⬜ | |
 
-### Day 23 (Wed) — Document Import (Hybrid) + More Commands
+### Day 23 (Wed) — Content Import (URL, Upload, Text) + More Commands
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D23-1` | Create `prompts/document_import.md` — extract curriculum structure from documents (PDF, DOCX, PPTX, HTML), infer Bloom's levels from verbs, map prerequisites | 🤖 | ⬜ | |
-| `B-W5D23-2` | `internal/parser/document.go` — `DocumentParser` interface shared by CLI and server | 🤖 | ⬜ | |
+| `B-W5D23-1` | Create `prompts/document_import.md` — extract curriculum structure from documents and web pages, infer Bloom's levels from verbs, map prerequisites | 🤖 | ⬜ | |
+| `B-W5D23-2` | `internal/parser/document.go` — `ContentExtractor` interface (URL, file, text) shared by CLI and server | 🤖 | ⬜ | |
 | `B-W5D23-3` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 | ⬜ | |
-| `B-W5D23-4` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, XLSX, HTML) | 🤖 | ⬜ | |
-| `B-W5D23-5` | `internal/generator/scaffolder.go` — `oss import --pdf ./kssm-spec.pdf --board malaysia --level form3` → generate full syllabus scaffold | 🤖 | ⬜ | |
-| `B-W5D23-6` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | |
+| `B-W5D23-4` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT, images via OCR) | 🤖 | ⬜ | |
+| `B-W5D23-5` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content (render JS if needed), pass to AI pipeline | 🤖 | ⬜ | |
+| `B-W5D23-6` | `internal/parser/image.go` — Image text extraction via OCR (Tesseract for CLI, Tika for server) for `.png`, `.jpg`, `.jpeg` | 🤖 | ⬜ | |
+| `B-W5D23-7` | `internal/generator/scaffolder.go` — `oss import --url <url>` / `oss import --file <path>` → generate full syllabus scaffold | 🤖 | ⬜ | |
+| `B-W5D23-8` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | |
 
 ### Day 24 (Thu) — Contribution Parser + Feedback API
 
@@ -132,7 +134,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D25-4` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | |
 | `B-W5D25-5` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ⬜ | |
 
-**Week 5 Output:** Working GitHub bot that generates content and opens PRs. CLI with validate/generate/translate/import (PDF). Server with multi-format document import via Apache Tika (PDF, DOCX, PPTX, XLSX, HTML). Feedback API for pai-bot.
+**Week 5 Output:** Working GitHub bot that generates content and opens PRs. Three input methods across all interfaces: URL import (web page fetching), file upload (PDF, DOCX, PPTX, TXT, images with OCR), and text (natural language). CLI with validate/generate/translate/import. Server with multi-format extraction via Apache Tika. Feedback API for pai-bot.
 
 ---
 
@@ -143,7 +145,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W6D26-1` | Scaffold `web/`: Next.js 14 + TypeScript + shadcn/ui + Tailwind | 🤖 | ⬜ | |
-| `B-W6D26-2` | Contribution form: Select form (F1/F2/F3) → Select topic → Contribution type (teaching notes/example/assessment/correction/translation) → Content textarea | 🤖 | ⬜ | |
+| `B-W6D26-2` | Contribution form: Select topic → Contribution type → Three input methods: paste URL, type/paste text, or upload file (PDF, DOCX, PPTX, TXT, image) | 🤖 | ⬜ | |
 | `B-W6D26-3` | `POST /api/preview` — AI structures the natural language input into proper YAML/markdown, returns preview | 🤖 | ⬜ | |
 
 ### Day 27 (Tue) — Submit + Preview Flow
@@ -187,9 +189,9 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 |------|----------------|----------|-------|
 | 1-3 | 0 | 0 | 0 (no oss-bot work) |
 | 4 | 16 | 2 | 18 |
-| 5 | 16 | 2 | 18 |
+| 5 | 18 | 2 | 20 |
 | 6 | 10 | 2 | 12 |
-| **Total** | **42** | **6** | **48** |
+| **Total** | **44** | **6** | **50** |
 
 ---
 
@@ -201,7 +203,9 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Teaching notes generation | <15s |
 | Assessment generation (5 questions) | <10s |
 | PDF import, CLI (50-page syllabus) | <60s |
+| URL import (fetch + extract) | <30s |
 | Document import, server (50-page, any format) | <90s |
+| Image OCR extraction | <15s |
 | Bot webhook → PR created | <30s |
 | Web portal preview | <5s |
 | CLI startup | <100ms |
