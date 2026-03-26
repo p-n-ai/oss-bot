@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/p-n-ai/oss-bot/internal/ai"
+	"github.com/p-n-ai/oss-bot/internal/generator"
 	"github.com/p-n-ai/oss-bot/internal/output"
 	"github.com/p-n-ai/oss-bot/internal/pipeline"
 	"github.com/p-n-ai/oss-bot/internal/validator"
@@ -104,12 +105,12 @@ func translateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "translate",
 		Short: "Translate topic content to another language",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("not yet implemented")
-		},
+		RunE:  runTranslate,
 	}
-	cmd.Flags().String("topic", "", "Path to topic file")
-	cmd.Flags().String("to", "", "Target language code (e.g., ms, zh, ta)")
+	cmd.Flags().String("topic", "", "Topic ID to translate (required)")
+	cmd.Flags().String("to", "", "Target language code: ms, zh, ta (required)")
+	cmd.MarkFlagRequired("topic")
+	cmd.MarkFlagRequired("to")
 	return cmd
 }
 
@@ -234,6 +235,33 @@ func runQuality(cmd *cobra.Command, args []string) error {
 	if len(topics) == 0 {
 		fmt.Println("No topic files found.")
 	}
+	return nil
+}
+
+func runTranslate(cmd *cobra.Command, args []string) error {
+	topicID, _ := cmd.Flags().GetString("topic")
+	targetLang, _ := cmd.Flags().GetString("to")
+	repoPath := os.Getenv("OSS_REPO_PATH")
+	if repoPath == "" {
+		repoPath = "."
+	}
+
+	provider, err := createAIProvider()
+	if err != nil {
+		return err
+	}
+
+	genCtx, err := generator.BuildContext(repoPath, topicID)
+	if err != nil {
+		return fmt.Errorf("building context: %w", err)
+	}
+
+	result, err := generator.Translate(context.Background(), provider, &genCtx.Topic, targetLang)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(result.Content)
 	return nil
 }
 

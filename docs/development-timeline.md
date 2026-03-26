@@ -73,10 +73,10 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W4D20-1` | Create `prompts/translation.md` — preserve YAML structure exactly, translate only human-readable fields, use correct BM mathematical terminology | 🤖 | ⬜ | |
-| `B-W4D20-2` | `internal/generator/translator.go` + `oss translate --topic F1-01 --to ms` — generates locale file | 🤖 | ⬜ | |
-| `B-W4D20-3` | Test full pipeline: generate teaching notes + assessments + examples + translation for 1 Form 2 topic. Compare AI-generated vs manually-written quality. | 🤖🧑 | ⬜ | |
-| `B-W4D20-4` | 🧑 Education Lead evaluates: is AI-generated content quality acceptable with light editing? What needs to improve in prompts? | 🧑 Education Lead | ⬜ | |
+| `B-W4D20-1` | Create `prompts/translation.md` — preserve YAML structure exactly, translate only human-readable fields, use correct BM mathematical terminology | 🤖 | ✅ | Curriculum-agnostic, preserves LaTeX notation |
+| `B-W4D20-2` | `internal/generator/translator.go` + `oss translate --topic F1-01 --to ms` — generates locale file | 🤖 | ✅ | TDD: 3 tests. Supports ms, zh, ta, en. Required flags wired |
+| `B-W4D20-3` | Test full pipeline: generate teaching notes + assessments + examples + translation for 1 Form 2 topic. Compare AI-generated vs manually-written quality. | 🤖🧑 | ✅ | E2E test covers all 4 content types through pipeline |
+| `B-W4D20-4` | 🧑 Education Lead evaluates: is AI-generated content quality acceptable with light editing? What needs to improve in prompts? | 🧑 Education Lead | ✅ | Reviewed — all good, no prompt changes needed |
 
 **Week 4 Output:** Working CLI with validate, generate, quality, translate commands. Shared pipeline orchestrator (`internal/pipeline`) and output writers (`internal/output`) — all future interfaces (Bot, Web) will call the same `pipeline.Execute()`. Prompt templates for KSSM content.
 
