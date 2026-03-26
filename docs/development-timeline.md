@@ -100,12 +100,12 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D22-1` | `internal/github/pr.go` — create branch, commit files, open PR with labels and description | 🤖 | ⬜ | |
-| `B-W5D22-2` | `internal/github/contents.go` — read existing topic files from oss repo via GitHub Contents API | 🤖 | ⬜ | |
-| `B-W5D22-3` | `internal/generator/merge.go` — `MergeAssessments()` (append + dedup), `MergeExamples()` (append + dedup + re-sort by difficulty), additive teaching notes. Uses `FindDuplicates` from `duplicates.go`. Includes `MergeReport` for PR summary. | 🤖 | ⬜ | New: content merge strategy |
-| `B-W5D22-4` | Integrate merge into pipeline: detect existing content → merge → validate → output. Extend `PRInput` with merge report for PR description. | 🤖 | ⬜ | New: pipeline merge stage |
-| `B-W5D22-5` | Bot command flow: parse `@oss-bot` comment → call shared `pipeline.Execute(ModeCreatePR)` → react to comment with PR link | 🤖 | ⬜ | |
-| `B-W5D22-6` | Bot responds to issue with PR link: "I've generated teaching notes for F2-01 and opened #PR. Please review for accuracy." | 🤖 | ⬜ | |
+| `B-W5D22-1` | `internal/github/pr.go` — create branch, commit files, open PR with labels and description | 🤖 | ✅ | PRRequest, FileChange, PRResult structs; GenerateBranchName, BuildPRBody helpers |
+| `B-W5D22-2` | `internal/github/contents.go` — read existing topic files from oss repo via GitHub Contents API | 🤖 | ✅ | ContentsClient interface + MockContentsClient for tests |
+| `B-W5D22-3` | `internal/generator/merge.go` — `MergeAssessments()` (append + dedup), `MergeExamples()` (append + dedup + re-sort by difficulty), additive teaching notes. Uses `FindDuplicates` from `duplicates.go`. Includes `MergeReport` for PR summary. | 🤖 | ✅ | Also added MergeAssessmentsYAML/MergeExamplesYAML for full-fidelity YAML merge |
+| `B-W5D22-4` | Integrate merge into pipeline: detect existing content → merge → validate → output. Extend `PRInput` with merge report for PR description. | 🤖 | ✅ | ContentReader interface + WithContentReader; MergeReport in Result; MergeDetails in PRInput |
+| `B-W5D22-5` | Bot command flow: parse `@oss-bot` comment → call shared `pipeline.Execute(ModeCreatePR)` → react to comment with PR link | 🤖 | ✅ | botServer struct wires pipeline at startup; handleCommand routes to pipeline.Execute |
+| `B-W5D22-6` | Bot responds to issue with PR link: "I've generated teaching notes for F2-01 and opened #PR. Please review for accuracy." | 🤖 | ✅ | postIssueComment via GitHub REST API; installation token via JWT exchange |
 
 ### Day 23 (Wed) — Scaffolding + Document Import (PDF, URL, Tika)
 

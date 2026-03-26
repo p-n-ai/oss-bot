@@ -72,6 +72,7 @@ type Misconception struct {
 // GenerationContext holds all context needed for AI content generation.
 type GenerationContext struct {
 	Topic              Topic
+	TopicDir           string  // Absolute path of the directory containing the topic file.
 	Prerequisites      []Topic
 	Siblings           []Topic
 	ExistingNotes      string
@@ -93,7 +94,8 @@ func BuildContext(repoDir, topicID string) (*GenerationContext, error) {
 	}
 
 	ctx := &GenerationContext{
-		Topic: *topic,
+		Topic:    *topic,
+		TopicDir: filepath.Dir(topicFile),
 	}
 
 	// Load prerequisites

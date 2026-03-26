@@ -19,11 +19,12 @@ type Writer interface {
 
 // PRInput holds the data needed to create a PR.
 type PRInput struct {
-	Files       map[string]string // filepath -> content
-	TopicPath   string
-	ContentType string
-	Quality     int
-	Source      string // "cli", "bot", "web"
+	Files        map[string]string // filepath -> content
+	TopicPath    string
+	ContentType  string
+	Quality      int
+	Source       string // "cli", "bot", "web"
+	MergeDetails string // Optional summary of content merge for PR description.
 }
 
 // PROutput holds the result of creating a PR.
