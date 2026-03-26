@@ -84,57 +84,62 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 ## WEEK 5 — GITHUB BOT + DOCUMENT IMPORT
 
-### Day 21 (Mon) — GitHub App Setup
+> **Rebalanced (2026-03-27):** Day 23 was overloaded (8 tasks). Image extraction and bot quality command moved to Day 24. Contribution parser + feedback API moved to Day 25. Content merge logic added to Day 22 per design decision.
+
+### Day 21 (Mon) — GitHub App Setup + Bot Server
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W5D21-1` | `internal/github/app.go` — GitHub App authentication (JWT from private key, installation token exchange) | 🤖 | ⬜ | |
 | `B-W5D21-2` | `internal/github/webhook.go` — webhook handler: verify HMAC signature, parse issue_comment events, extract @oss-bot commands | 🤖 | ⬜ | |
 | `B-W5D21-3` | `internal/parser/command.go` — parse bot commands: `add teaching notes`, `add N assessments`, `translate`, `scaffold`, `quality`, `import <url>`, `import` (with attachment) | 🤖 | ⬜ | |
-| `B-W5D21-4` | 🧑 Register GitHub App: p-n-ai org, webhook URL, permissions (Issues R/W, PRs R/W, Contents R/W) | 🧑 Human | ⬜ | |
+| `B-W5D21-4` | Wire `cmd/bot/main.go` — real HTTP server with webhook handler (replace placeholder) | 🤖 | ⬜ | |
+| `B-W5D21-5` | 🧑 Register GitHub App: p-n-ai org, webhook URL, permissions (Issues R/W, PRs R/W, Contents R/W) | 🧑 Human | ⬜ | |
 
-### Day 22 (Tue) — Bot → PR Pipeline
+### Day 22 (Tue) — Bot → PR Pipeline + Content Merge
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W5D22-1` | `internal/github/pr.go` — create branch, commit files, open PR with labels and description | 🤖 | ⬜ | |
 | `B-W5D22-2` | `internal/github/contents.go` — read existing topic files from oss repo via GitHub Contents API | 🤖 | ⬜ | |
-| `B-W5D22-3` | Bot command flow: parse `@oss-bot` comment → call shared `pipeline.Execute(ModeCreatePR)` → react to comment with PR link. Reuses same pipeline as CLI and Web Portal. | 🤖 | ⬜ | |
-| `B-W5D22-4` | Bot responds to issue with PR link: "I've generated teaching notes for F2-01 and opened #PR. Please review for accuracy." | 🤖 | ⬜ | |
+| `B-W5D22-3` | `internal/generator/merge.go` — `MergeAssessments()` (append + dedup), `MergeExamples()` (append + dedup + re-sort by difficulty), additive teaching notes. Uses `FindDuplicates` from `duplicates.go`. Includes `MergeReport` for PR summary. | 🤖 | ⬜ | New: content merge strategy |
+| `B-W5D22-4` | Integrate merge into pipeline: detect existing content → merge → validate → output. Extend `PRInput` with merge report for PR description. | 🤖 | ⬜ | New: pipeline merge stage |
+| `B-W5D22-5` | Bot command flow: parse `@oss-bot` comment → call shared `pipeline.Execute(ModeCreatePR)` → react to comment with PR link | 🤖 | ⬜ | |
+| `B-W5D22-6` | Bot responds to issue with PR link: "I've generated teaching notes for F2-01 and opened #PR. Please review for accuracy." | 🤖 | ⬜ | |
 
-### Day 23 (Wed) — Content Import (URL, Upload, Text) + More Commands
+### Day 23 (Wed) — Document Import (PDF, URL, Tika)
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W5D23-1` | Create `prompts/document_import.md` — extract curriculum structure from documents and web pages, infer Bloom's levels from verbs, map prerequisites | 🤖 | ⬜ | |
 | `B-W5D23-2` | `internal/parser/document.go` — `ContentExtractor` interface (URL, file, text) shared by CLI and server | 🤖 | ⬜ | |
 | `B-W5D23-3` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 | ⬜ | |
-| `B-W5D23-4` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT, images via OCR) | 🤖 | ⬜ | |
-| `B-W5D23-5` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content (render JS if needed), pass to AI pipeline | 🤖 | ⬜ | |
-| `B-W5D23-6` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts. Auto-detection with `--vision` override. | 🤖 | ⬜ | |
-| `B-W5D23-7` | `internal/generator/scaffolder.go` — `oss import --url <url>` / `oss import --file <path>` → generate full syllabus scaffold | 🤖 | ⬜ | |
-| `B-W5D23-8` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | |
+| `B-W5D23-4` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT) | 🤖 | ⬜ | |
+| `B-W5D23-5` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content, pass to AI pipeline | 🤖 | ⬜ | |
+| `B-W5D23-6` | `internal/generator/scaffolder.go` — `oss import --url <url>` / `oss import --file <path>` → generate full syllabus scaffold | 🤖 | ⬜ | |
 
-### Day 24 (Thu) — Contribution Parser + Feedback API
+### Day 24 (Thu) — Image Extraction + Bot Quality Command
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D24-1` | Create `prompts/contribution_parser.md` — parse natural language teacher input into structured YAML, preserve teacher's voice | 🤖 | ⬜ | |
-| `B-W5D24-2` | `internal/parser/contribution.go` — teacher writes "My students always confuse the negative sign when expanding brackets" → structured misconception entry | 🤖 | ⬜ | |
-| `B-W5D24-3` | `POST /api/feedback` — endpoint for pai-bot to submit observed patterns (misconception frequency, explanation effectiveness) | 🤖 | ⬜ | |
-| `B-W5D24-4` | Feedback handler: receive structured feedback → run generation pipeline → create PR with provenance:ai-observed label | 🤖 | ⬜ | |
+| `B-W5D24-1` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts. Auto-detection with `--vision` override. | 🤖 | ⬜ | Moved from Day 23 |
+| `B-W5D24-2` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | Moved from Day 23 |
+| `B-W5D24-3` | Create `prompts/contribution_parser.md` — parse natural language teacher input into structured YAML, preserve teacher's voice | 🤖 | ⬜ | Moved from Day 24 |
+| `B-W5D24-4` | `internal/parser/contribution.go` — teacher writes "My students always confuse the negative sign when expanding brackets" → structured misconception entry | 🤖 | ⬜ | Moved from Day 24 |
 
-### Day 25 (Fri) — Docker + Testing
+### Day 25 (Fri) — Feedback API + Docker + Testing
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D25-1` | Dockerfile: multi-stage Go build for both CLI binary and bot server | 🤖 | ⬜ | |
-| `B-W5D25-2` | `docker-compose.yml`: bot server + Apache Tika sidecar + webhook tunnel (for dev) | 🤖 | ⬜ | |
-| `B-W5D25-3` | README.md: CLI installation (go install + pre-built binaries), GitHub App setup, bot deployment | 🤖 | ⬜ | |
-| `B-W5D25-4` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | |
-| `B-W5D25-5` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ⬜ | |
+| `B-W5D25-1` | `POST /api/feedback` — endpoint for pai-bot to submit observed patterns (misconception frequency, explanation effectiveness) | 🤖 | ⬜ | Moved from Day 24 |
+| `B-W5D25-2` | Feedback handler: receive structured feedback → run generation pipeline → create PR with provenance:ai-observed label | 🤖 | ⬜ | Moved from Day 24 |
+| `B-W5D25-3` | Dockerfile: multi-stage Go build for both CLI binary and bot server | 🤖 | ⬜ | |
+| `B-W5D25-4` | `docker-compose.yml`: bot server + Apache Tika sidecar + webhook tunnel (for dev) | 🤖 | ⬜ | |
+| `B-W5D25-5` | README.md: CLI installation (go install + pre-built binaries), GitHub App setup, bot deployment | 🤖 | ⬜ | |
+| `B-W5D25-6` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | |
+| `B-W5D25-7` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ⬜ | |
 
-**Week 5 Output:** Working GitHub bot that generates content and opens PRs. Three input methods across all interfaces: URL import (web page fetching), file upload (PDF, DOCX, PPTX, TXT, images with OCR + AI Vision), and text (natural language). CLI with validate/generate/translate/import. Server with multi-format extraction via Apache Tika. Feedback API for pai-bot.
+**Week 5 Output:** Working GitHub bot that generates content and opens PRs with intelligent content merging (additive by default). Three input methods across all interfaces: URL import (web page fetching), file upload (PDF, DOCX, PPTX, TXT, images with OCR + AI Vision), and text (natural language). CLI with validate/generate/translate/import. Server with multi-format extraction via Apache Tika. Feedback API for pai-bot.
 
 ---
 
@@ -185,13 +190,13 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 ## Task Count Summary
 
-| Week | 🤖 Claude Code | 🧑 Human | Total |
-|------|----------------|----------|-------|
-| 1-3 | 0 | 0 | 0 (no oss-bot work) |
-| 4 | 16 | 2 | 18 |
-| 5 | 18 | 2 | 20 |
-| 6 | 10 | 2 | 12 |
-| **Total** | **44** | **6** | **50** |
+| Week | 🤖 Claude Code | 🧑 Human | Total | Status |
+|------|----------------|----------|-------|--------|
+| 1-3 | 0 | 0 | 0 (no oss-bot work) | — |
+| 4 | 18 | 2 | 20 | ✅ Complete (Days 16-20) |
+| 5 | 26 | 2 | 28 | ⬜ Next (Days 21-25, rebalanced) |
+| 6 | 10 | 2 | 12 | ⬜ (Days 26-30) |
+| **Total** | **54** | **6** | **60** |
 
 ---
 
