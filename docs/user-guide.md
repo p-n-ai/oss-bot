@@ -53,9 +53,18 @@ Upload a document containing curriculum content. Supported formats:
 | Word | `.docx` | Curriculum documents, lesson plans, scheme of work |
 | PowerPoint | `.pptx` | Lecture slides, topic breakdowns |
 | Plain text | `.txt` | Simple text files, exported notes |
-| Image | `.png`, `.jpg`, `.jpeg` | Photos of syllabuses, whiteboard notes, textbook pages (OCR extracted) |
+| Image | `.png`, `.jpg`, `.jpeg` | Photos of syllabuses, whiteboard notes, textbook pages, handwritten notes, diagrams |
 
-**What happens:** The bot extracts text from the document (using OCR for images), identifies curriculum structure, maps content to topics and learning objectives, infers Bloom's levels, and produces structured YAML. For multi-page documents, the bot processes the entire file and may generate multiple topics.
+**What happens:** The bot extracts content from the document and structures it into YAML. For images, two extraction methods are used automatically:
+
+| Method | Used When | How It Works |
+|--------|-----------|-------------|
+| **OCR** (Tesseract/Tika) | Clean printed text — scanned documents, typed content in photos | Fast, deterministic, no API cost |
+| **AI Vision** (GPT-4o/Claude) | Handwritten notes, diagrams, flowcharts, whiteboard photos, complex layouts, tables | Sends the image to a multimodal AI model that can interpret visual structure, read handwriting, and understand diagrams |
+
+The system auto-detects which method to use based on image content. If OCR returns low-confidence or sparse text, it falls back to AI Vision. You can also force AI Vision with the `--vision` flag (CLI) or the "Use AI Vision" toggle (Web Portal) for images where layout and visual context matter.
+
+For multi-page documents, the bot processes the entire file and may generate multiple topics.
 
 ---
 
@@ -88,7 +97,7 @@ The web portal is the simplest way to contribute. No GitHub account, no terminal
    > "When I teach simultaneous equations, I start with a real-world example like splitting a restaurant bill. Students often confuse which variable to eliminate first. I find that colour-coding the variables on the board helps. A common mistake is forgetting to flip the sign when subtracting equations."
 
    **Upload a file:**
-   Drag and drop or browse to upload a PDF, DOCX, PPTX, TXT, or image file. The portal extracts the content and shows a processing indicator while the document is parsed.
+   Drag and drop or browse to upload a PDF, DOCX, PPTX, TXT, or image file. The portal extracts the content and shows a processing indicator while the document is parsed. For images, toggle "Use AI Vision" to interpret handwritten notes, diagrams, or complex layouts.
 
 5. **Preview the result.** The portal shows a live preview of the structured output. A green checkmark means the content passes schema validation. A red indicator means something needs adjustment — the portal will tell you what.
 
@@ -106,7 +115,8 @@ The web portal is the simplest way to contribute. No GitHub account, no terminal
 - If you do sign in with GitHub, your contributions are attributed to your account and you can track them.
 - You can write in any language — the system handles structuring and, if needed, translation.
 - You can combine input methods — paste a URL and add your own teaching notes as text in the same contribution.
-- For images, ensure the text is legible. High-resolution photos of printed syllabuses work well; blurry whiteboard photos may not.
+- For images with printed text, standard OCR handles extraction automatically. For handwritten notes, diagrams, flowcharts, or whiteboard photos, enable "Use AI Vision" — it sends the image to a multimodal AI model that understands visual structure.
+- High-resolution images produce better results. Blurry photos may still work with AI Vision but quality depends on legibility.
 - The preview step catches most issues before submission. If the preview shows errors, adjust your input and try again.
 
 ---
@@ -195,9 +205,15 @@ The bot fetches the page, extracts curriculum structure, identifies topics and l
 @oss-bot import
 ```
 
-Attach a PDF, DOCX, PPTX, TXT, or image file to your comment. The bot extracts text (using OCR for images), identifies curriculum structure, and opens a PR with the structured result.
+Attach a PDF, DOCX, PPTX, TXT, or image file to your comment. The bot extracts content (using OCR or AI Vision for images), identifies curriculum structure, and opens a PR with the structured result.
 
 Supported attachments: `.pdf`, `.docx`, `.pptx`, `.txt`, `.png`, `.jpg`, `.jpeg`
+
+For images, the bot auto-detects whether to use OCR (clean printed text) or AI Vision (handwriting, diagrams, complex layouts). To force AI Vision, add `vision:true` to your command:
+
+```
+@oss-bot import vision:true
+```
 
 #### Enrich a topic with text
 
@@ -338,13 +354,18 @@ oss import --pdf curriculum.pdf --board CBSE --level secondary --subject mathema
 # Word, PowerPoint, text (requires Apache Tika running locally or via Docker)
 oss import --file syllabus.docx --board CBSE --level secondary --subject mathematics
 
-# Image — extracts text via OCR
+# Image — auto-detects OCR vs AI Vision
 oss import --file whiteboard-photo.jpg --board CBSE --level secondary --subject mathematics
+
+# Force AI Vision for handwritten notes, diagrams, or complex layouts
+oss import --file whiteboard-photo.jpg --vision --board CBSE --level secondary --subject mathematics
 ```
 
 Supported formats: `.pdf`, `.docx`, `.pptx`, `.txt`, `.png`, `.jpg`, `.jpeg`
 
-The import command extracts text from the source (using OCR for images), identifies curriculum structure, infers Bloom's levels, and writes structured YAML files to your local clone.
+For images, the CLI auto-detects whether to use OCR (fast, for printed text) or AI Vision (sends to GPT-4o/Claude, for handwriting/diagrams/complex layouts). Use `--vision` to force the AI Vision path.
+
+The import command extracts content from the source, identifies curriculum structure, infers Bloom's levels, and writes structured YAML files to your local clone.
 
 #### Quality report
 

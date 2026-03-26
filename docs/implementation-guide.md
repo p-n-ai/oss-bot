@@ -3795,6 +3795,12 @@ func TestParseCommand(t *testing.T) {
 			wantTopic:  "",
 		},
 		{
+			name:       "import-attachment-with-vision",
+			input:      "@oss-bot import vision:true",
+			wantAction: "import",
+			wantTopic:  "",
+		},
+		{
 			name:    "no-bot-mention",
 			input:   "Just a regular comment",
 			wantErr: true,
@@ -4267,13 +4273,13 @@ Users can contribute content via three input methods, all supported across every
 
 1. **URL** — paste a link to a curriculum page or hosted document. The system fetches the page, extracts text, and structures it into YAML.
 2. **Text** — type or paste content directly (structured or freeform natural language, any language).
-3. **Upload** — attach a file. Supported formats: PDF (`.pdf`), Word (`.docx`), PowerPoint (`.pptx`), plain text (`.txt`), and images (`.png`, `.jpg`, `.jpeg` — text extracted via OCR).
+3. **Upload** — attach a file. Supported formats: PDF (`.pdf`), Word (`.docx`), PowerPoint (`.pptx`), plain text (`.txt`), and images (`.png`, `.jpg`, `.jpeg` — extracted via OCR for printed text or AI Vision for handwriting/diagrams).
 
 #### Architecture Decision: Hybrid Content Extraction
 
 The project uses a **hybrid approach** for content extraction:
-- **CLI:** Uses `ledongthuc/pdf` (Go-native) for PDFs and Tesseract for image OCR. Lightweight, no Docker needed.
-- **Server (Bot + Web Portal):** Uses Apache Tika as a Docker sidecar via `google/go-tika`. Handles PDF, DOCX, PPTX, TXT, images (OCR), and 1000+ other formats.
+- **CLI:** Uses `ledongthuc/pdf` (Go-native) for PDFs, Tesseract for image OCR, and AI Vision (via the existing AI provider interface) for handwriting/diagrams. Lightweight, no Docker needed.
+- **Server (Bot + Web Portal):** Uses Apache Tika as a Docker sidecar via `google/go-tika`. Handles PDF, DOCX, PPTX, TXT, images (OCR via Tika's Tesseract, AI Vision via AI provider), and 1000+ other formats.
 - **URL fetching:** Shared across CLI and server. Uses Go `net/http` with optional headless rendering for JavaScript-heavy pages.
 
 All extractors share the `ContentExtractor` interface, allowing the import pipeline to work identically regardless of source.
@@ -4293,7 +4299,7 @@ All extractors share the `ContentExtractor` interface, allowing the import pipel
 | 23.3 | `B-W5D23-3` | Go-native PDF extraction (CLI) | 🤖 | `internal/parser/pdf.go` |
 | 23.4 | `B-W5D23-4` | Apache Tika client (Server) | 🤖 | `internal/parser/tika.go` |
 | 23.5 | `B-W5D23-5` | URL fetcher | 🤖 | `internal/parser/url.go` |
-| 23.6 | `B-W5D23-6` | Image OCR extraction | 🤖 | `internal/parser/image.go` |
+| 23.6 | `B-W5D23-6` | Image extraction (OCR + AI Vision) | 🤖 | `internal/parser/image.go` |
 | 23.7 | `B-W5D23-7` | Scaffolder (any source → syllabus structure) | 🤖 | `internal/generator/scaffolder.go` |
 | 23.8 | `B-W5D23-8` | `@oss-bot quality` command implementation | 🤖 | Update bot handlers |
 
@@ -4311,7 +4317,8 @@ You are an expert at extracting curriculum structure from educational sources.
 **Source content (pre-extracted text):**
 {{document_text}}
 
-**Source type:** {{source_type}}  <!-- "url", "pdf", "docx", "pptx", "txt", "image", "text" -->
+**Source type:** {{source_type}}  <!-- "url", "pdf", "docx", "pptx", "txt", "image_ocr", "image_vision", "text" -->
+**Image extraction method (if image):** {{image_method}}  <!-- "ocr", "vision", or empty -->
 **Source URL (if applicable):** {{source_url}}
 **Source format:** {{source_format}}
 **Target board:** {{board}}
@@ -4357,7 +4364,7 @@ package parser
 import "context"
 
 // ContentExtractor extracts text from various sources for the AI import pipeline.
-// Implementations: PDFParser (CLI), TikaParser (server), URLFetcher, ImageParser.
+// Implementations: PDFParser (CLI), TikaParser (server), URLFetcher, ImageExtractor.
 type ContentExtractor interface {
 	// Extract converts a source to plain text for AI processing.
 	// input is the raw file bytes (for files/images) or nil (for URL fetcher).
@@ -4368,6 +4375,20 @@ type ContentExtractor interface {
 	SupportedTypes() []string
 }
 
+// ImageExtractionMode controls how images are processed.
+type ImageExtractionMode int
+
+const (
+	// ImageModeAuto tries OCR first; if OCR returns low-confidence or sparse
+	// text, falls back to AI Vision.
+	ImageModeAuto ImageExtractionMode = iota
+	// ImageModeOCR forces Tesseract/Tika OCR only (fast, no API cost).
+	ImageModeOCR
+	// ImageModeVision forces AI Vision via the AI provider (GPT-4o/Claude).
+	// Best for handwriting, diagrams, flowcharts, whiteboard photos, complex layouts.
+	ImageModeVision
+)
+
 // URLFetcher fetches and extracts text from web pages.
 type URLFetcher interface {
 	// Fetch retrieves a web page and returns its text content.
@@ -4377,12 +4398,13 @@ type URLFetcher interface {
 
 // InputSource represents the three ways users can provide content.
 type InputSource struct {
-	Type     string // "url", "text", "file"
-	URL      string // For URL input
-	Text     string // For text (copy-paste) input
-	FileData []byte // For file upload input
-	FileName string // Original filename (used to detect MIME type)
-	MimeType string // MIME type of uploaded file
+	Type      string              // "url", "text", "file"
+	URL       string              // For URL input
+	Text      string              // For text (copy-paste) input
+	FileData  []byte              // For file upload input
+	FileName  string              // Original filename (used to detect MIME type)
+	MimeType  string              // MIME type of uploaded file
+	ImageMode ImageExtractionMode // For images: Auto, OCR, or Vision
 }
 ```
 
@@ -4638,8 +4660,8 @@ func (p *TikaParser) SupportedTypes() []string {
 		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",         // XLSX
 		"text/plain",       // TXT
 		"text/html",
-		"image/png",        // Images (Tika uses Tesseract OCR)
-		"image/jpeg",       // JPG/JPEG
+		"image/png",        // Images (Tika uses Tesseract OCR; AI Vision handled by ImageExtractor)
+		"image/jpeg",       // JPG/JPEG (same as above)
 		"application/rtf",
 		"application/epub+zip",
 	}
@@ -4796,7 +4818,16 @@ func extractTextFromHTML(r io.Reader) (string, error) {
 }
 ```
 
-#### 23.6 — Image OCR Extraction (TDD)
+#### 23.6 — Image Extraction: OCR + AI Vision (TDD)
+
+The image extractor supports two extraction methods:
+
+| Method | Best For | Implementation | Cost |
+|--------|----------|----------------|------|
+| **OCR** (Tesseract/Tika) | Clean printed text — scanned docs, typed content in photos | `os/exec` → `tesseract` (CLI) or Tika's built-in Tesseract (server) | Free |
+| **AI Vision** (GPT-4o/Claude) | Handwritten notes, diagrams, flowcharts, whiteboard photos, textbook page layouts, tables | Sends base64 image to multimodal AI via the existing `ai.Provider` interface | API cost per image |
+
+**Auto-detection logic:** Try OCR first. If OCR returns fewer than 20 characters or Tesseract reports confidence below 60%, fall back to AI Vision. Users can override with `--vision` (CLI), `vision:true` (bot), or the "Use AI Vision" toggle (web portal).
 
 **File:** `internal/parser/image_test.go`
 
@@ -4810,8 +4841,9 @@ import (
 	"github.com/p-n-ai/oss-bot/internal/parser"
 )
 
-func TestImageParser(t *testing.T) {
-	p := parser.NewImageParser()
+func TestImageExtractor(t *testing.T) {
+	// OCR-only extractor (no AI provider)
+	p := parser.NewImageExtractor(nil, parser.ImageModeOCR)
 
 	t.Run("supported-types", func(t *testing.T) {
 		types := p.SupportedTypes()
@@ -4834,6 +4866,34 @@ func TestImageParser(t *testing.T) {
 		}
 	})
 }
+
+func TestImageExtractorVisionMode(t *testing.T) {
+	// Mock AI provider that returns a fixed response
+	mockProvider := &mockAIProvider{
+		response: "Topic: Algebra\nLearning Objective: Solve linear equations",
+	}
+	p := parser.NewImageExtractor(mockProvider, parser.ImageModeVision)
+
+	t.Run("vision-extracts-content", func(t *testing.T) {
+		// Minimal valid PNG header
+		pngHeader := []byte{0x89, 0x50, 0x4E, 0x47}
+		text, err := p.Extract(context.Background(), pngHeader, "image/png")
+		if err != nil {
+			t.Fatalf("Extract() error = %v", err)
+		}
+		if text == "" {
+			t.Error("Extract() returned empty text from vision")
+		}
+	})
+
+	t.Run("vision-requires-provider", func(t *testing.T) {
+		noProvider := parser.NewImageExtractor(nil, parser.ImageModeVision)
+		_, err := noProvider.Extract(context.Background(), []byte{0x89}, "image/png")
+		if err == nil {
+			t.Error("Extract() should error when AI provider is nil in vision mode")
+		}
+	})
+}
 ```
 
 **File:** `internal/parser/image.go`
@@ -4843,37 +4903,122 @@ package parser
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
+
+	"github.com/p-n-ai/oss-bot/internal/ai"
 )
 
-// ImageParser implements ContentExtractor for image files using OCR.
-// CLI uses Tesseract (if available). Server uses Tika (which includes Tesseract).
-type ImageParser struct{}
-
-// NewImageParser creates a new image parser with OCR support.
-func NewImageParser() *ImageParser {
-	return &ImageParser{}
+// ImageExtractor implements ContentExtractor for image files.
+// Supports two extraction methods:
+//   - OCR (Tesseract/Tika): fast, free, best for clean printed text
+//   - AI Vision (GPT-4o/Claude): handles handwriting, diagrams, flowcharts,
+//     whiteboard photos, complex layouts, and tables in images
+type ImageExtractor struct {
+	aiProvider ai.Provider
+	mode       ImageExtractionMode
 }
 
-func (p *ImageParser) Extract(ctx context.Context, input []byte, mimeType string) (string, error) {
+// NewImageExtractor creates a new image extractor.
+// aiProvider is required for Vision mode (can be nil for OCR-only).
+// mode controls extraction: ImageModeAuto, ImageModeOCR, or ImageModeVision.
+func NewImageExtractor(provider ai.Provider, mode ImageExtractionMode) *ImageExtractor {
+	return &ImageExtractor{
+		aiProvider: provider,
+		mode:       mode,
+	}
+}
+
+func (p *ImageExtractor) Extract(ctx context.Context, input []byte, mimeType string) (string, error) {
 	if len(input) == 0 {
 		return "", fmt.Errorf("empty input")
 	}
 	if !p.isImageType(mimeType) {
-		return "", fmt.Errorf("unsupported MIME type for ImageParser: %s", mimeType)
+		return "", fmt.Errorf("unsupported MIME type for ImageExtractor: %s", mimeType)
 	}
 
-	// OCR extraction using Tesseract CLI
-	// TODO: Implement with os/exec call to tesseract binary
-	return "", fmt.Errorf("image OCR extraction not yet implemented — install tesseract")
+	switch p.mode {
+	case ImageModeOCR:
+		return p.extractOCR(ctx, input)
+	case ImageModeVision:
+		return p.extractVision(ctx, input, mimeType)
+	case ImageModeAuto:
+		// Try OCR first; fall back to Vision if result is sparse
+		text, err := p.extractOCR(ctx, input)
+		if err == nil && len(strings.TrimSpace(text)) >= 20 {
+			return text, nil
+		}
+		// OCR returned sparse/empty text — try AI Vision
+		if p.aiProvider != nil {
+			return p.extractVision(ctx, input, mimeType)
+		}
+		// No AI provider available — return whatever OCR got
+		if err != nil {
+			return "", fmt.Errorf("OCR failed and no AI provider for vision fallback: %w", err)
+		}
+		return text, nil
+	default:
+		return "", fmt.Errorf("unknown image extraction mode: %d", p.mode)
+	}
 }
 
-func (p *ImageParser) SupportedTypes() []string {
+// extractOCR uses Tesseract CLI for text extraction.
+func (p *ImageExtractor) extractOCR(ctx context.Context, input []byte) (string, error) {
+	// TODO: Implement with os/exec call to tesseract binary
+	// Write input to temp file, run: tesseract <input> stdout
+	// Parse stdout for extracted text
+	return "", fmt.Errorf("OCR extraction not yet implemented — install tesseract")
+}
+
+// extractVision sends the image to a multimodal AI model.
+func (p *ImageExtractor) extractVision(ctx context.Context, input []byte, mimeType string) (string, error) {
+	if p.aiProvider == nil {
+		return "", fmt.Errorf("AI provider required for vision extraction")
+	}
+
+	// Encode image as base64 for the AI provider
+	b64 := base64.StdEncoding.EncodeToString(input)
+
+	resp, err := p.aiProvider.Complete(ctx, ai.CompletionRequest{
+		Messages: []ai.Message{
+			{
+				Role: "user",
+				Content: []ai.ContentBlock{
+					{
+						Type: "image",
+						Source: &ai.ImageSource{
+							Type:      "base64",
+							MediaType: mimeType,
+							Data:      b64,
+						},
+					},
+					{
+						Type: "text",
+						Text: "Extract all educational content from this image. " +
+							"Identify: subject areas, topic names, learning objectives, " +
+							"assessment questions, teaching notes, diagrams descriptions, " +
+							"and any curriculum structure. " +
+							"If there is handwritten text, transcribe it accurately. " +
+							"If there are diagrams or flowcharts, describe their structure and content. " +
+							"Output as plain text, preserving the logical structure.",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("AI vision extraction failed: %w", err)
+	}
+
+	return resp.Text, nil
+}
+
+func (p *ImageExtractor) SupportedTypes() []string {
 	return []string{"image/png", "image/jpeg"}
 }
 
-func (p *ImageParser) isImageType(mimeType string) bool {
+func (p *ImageExtractor) isImageType(mimeType string) bool {
 	return strings.HasPrefix(mimeType, "image/")
 }
 ```
@@ -4897,12 +5042,12 @@ go test ./...
 - [ ] `internal/parser/pdf.go` + tests — Go-native PDF extraction (CLI)
 - [ ] `internal/parser/tika.go` + tests — Apache Tika multi-format extraction including images (server)
 - [ ] `internal/parser/url.go` + tests — URL fetcher with HTML text extraction
-- [ ] `internal/parser/image.go` + tests — Image OCR extraction (PNG, JPG/JPEG)
+- [ ] `internal/parser/image.go` + tests — Dual image extraction: OCR for printed text, AI Vision for handwriting/diagrams (with auto-detection)
 - [ ] `internal/generator/scaffolder.go` + tests — generates syllabus structure from any source
 - [ ] `@oss-bot quality` responds with quality report as issue comment
 - [ ] `go test ./...` passes
 
-**Progress:** CLI + Bot + content import (URL, upload, text) + scaffolder | 5 packages | 5 prompt templates
+**Progress:** CLI + Bot + content import (URL, upload with OCR + AI Vision, text) + scaffolder | 5 packages | 5 prompt templates
 
 ---
 
@@ -5346,6 +5491,7 @@ export interface PreviewRequest {
   inputMethod: 'text' | 'url' | 'file';
   content: string;       // For text input: the pasted/typed content
   url?: string;          // For URL input: the page to fetch
+  useVision?: boolean;   // For image uploads: use AI Vision (handwriting, diagrams)
   language?: string;
   // File uploads use multipart/form-data via a separate uploadFile() call
 }
@@ -5392,12 +5538,14 @@ export async function uploadFile(
   syllabusId: string,
   topicId: string,
   contributionType: PreviewRequest['contributionType'],
+  useVision = false,
 ): Promise<PreviewResponse> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('syllabusId', syllabusId);
   formData.append('topicId', topicId);
   formData.append('contributionType', contributionType);
+  if (useVision) formData.append('useVision', 'true');
 
   const res = await fetch(`${API_BASE}/api/preview`, {
     method: 'POST',
@@ -5428,6 +5576,11 @@ import { getCurricula, preview, submit, uploadFile, PreviewRequest } from '@/lib
 export default function ContributePage() {
   const [step, setStep] = useState<'select' | 'write' | 'preview' | 'done'>('select');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [useVision, setUseVision] = useState(false);
+
+  const isImageFile = (name: string) =>
+    /\.(png|jpg|jpeg)$/i.test(name);
+
   const [form, setForm] = useState<PreviewRequest>({
     syllabusId: '',
     topicId: '',
@@ -5444,7 +5597,7 @@ export default function ContributePage() {
   });
 
   const uploadFileMutation = useMutation({
-    mutationFn: (file: File) => uploadFile(file, form.syllabusId, form.topicId, form.contributionType),
+    mutationFn: (file: File) => uploadFile(file, form.syllabusId, form.topicId, form.contributionType, useVision),
     onSuccess: () => setStep('preview'),
   });
 
@@ -5537,6 +5690,17 @@ export default function ContributePage() {
               />
               {selectedFile && (
                 <p className="text-sm text-gray-500">Selected: {selectedFile.name}</p>
+              )}
+              {selectedFile && isImageFile(selectedFile.name) && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={useVision}
+                    onChange={(e) => setUseVision(e.target.checked)}
+                  />
+                  <span>Use AI Vision</span>
+                  <span className="text-gray-400">(for handwritten notes, diagrams, whiteboard photos)</span>
+                </label>
               )}
             </>
           )}
@@ -5670,6 +5834,7 @@ type PreviewRequest struct {
 	InputMethod      string `json:"inputMethod"`          // "text", "url", or "file"
 	Content          string `json:"content,omitempty"`     // For text input
 	URL              string `json:"url,omitempty"`         // For URL input
+	UseVision        bool   `json:"useVision,omitempty"`   // For image uploads: use AI Vision instead of OCR
 	Language         string `json:"language,omitempty"`
 	// File uploads are handled via multipart/form-data (not JSON)
 }
@@ -5722,7 +5887,9 @@ func (h *PreviewHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Extract text based on input method:
 	//    - "text": use content directly
 	//    - "url": fetch URL via URLFetcher, extract text
-	//    - "file": extract text via ContentExtractor (Tika for server)
+	//    - "file": extract via ContentExtractor (Tika for server)
+	//      - For images: use OCR (default) or AI Vision (if useVision=true)
+	//        Auto mode: try OCR first, fall back to Vision if sparse text
 	// 2. Build context from topic
 	// 3. Parse contribution via AI
 	// 4. Validate structured output
@@ -6224,7 +6391,7 @@ Write the oss-bot section of the 6-week report covering:
 | `internal/validator` | Day 16-17 | `validator.go`, `bloom.go`, `prerequisites.go`, `duplicates.go`, `quality.go` | JSON Schema validation, content quality checks |
 | `internal/ai` | Day 18 | `provider.go`, `mock.go`, `openai.go`, `anthropic.go`, `ollama.go` | AI provider interface (shared with P&AI Bot) |
 | `internal/generator` | Day 18-20 | `context.go`, `teaching_notes.go`, `assessments.go`, `examples.go`, `translator.go`, `scaffolder.go` | Content generation pipeline |
-| `internal/parser` | Day 23-24 | `document.go`, `pdf.go`, `tika.go`, `url.go`, `image.go`, `contribution.go` | ContentExtractor interface, Go-native PDF (CLI), Tika multi-format (server), URL fetcher, image OCR, natural language parsing |
+| `internal/parser` | Day 23-24 | `document.go`, `pdf.go`, `tika.go`, `url.go`, `image.go`, `contribution.go` | ContentExtractor interface, Go-native PDF (CLI), Tika multi-format (server), URL fetcher, image extraction (OCR + AI Vision), natural language parsing |
 | `internal/github` | Day 21-22 | `app.go`, `webhook.go`, `pr.go`, `contents.go` | GitHub App auth, webhooks, PR creation |
 | `internal/api` | Day 24-28 | `router.go`, `preview.go`, `submit.go`, `feedback.go`, `curricula.go` | Web portal HTTP API |
 
@@ -6273,7 +6440,8 @@ Write the oss-bot section of the 6-week report covering:
 | Assessment generation (5 questions) | <10s | `time go run ./cmd/oss generate assessments F1-01 -c 5` |
 | PDF import, CLI (50-page syllabus) | <60s | `time go run ./cmd/oss import --pdf test.pdf` |
 | URL import (fetch + extract) | <30s | `time go run ./cmd/oss import --url https://example.org/spec` |
-| Image OCR extraction | <15s | `time go run ./cmd/oss import --file photo.jpg` |
+| Image extraction (OCR) | <5s | `time go run ./cmd/oss import --file photo.jpg` |
+| Image extraction (AI Vision) | <15s | `time go run ./cmd/oss import --file photo.jpg --vision` |
 | Document import, server (50-page, any format) | <90s | Measure via API with DOCX/PPTX/image input |
 | Bot webhook → PR created | <30s | Measure from webhook receipt to PR URL comment |
 | Web portal preview | <5s | Measure from submit to preview render |

@@ -111,7 +111,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D23-3` | `internal/parser/pdf.go` — Go-native PDF text extraction using `ledongthuc/pdf` (for CLI standalone use) | 🤖 | ⬜ | |
 | `B-W5D23-4` | `internal/parser/tika.go` — Apache Tika client using `google/go-tika` (for server multi-format: PDF, DOCX, PPTX, TXT, images via OCR) | 🤖 | ⬜ | |
 | `B-W5D23-5` | `internal/parser/url.go` — URL fetcher: fetch web page, extract text content (render JS if needed), pass to AI pipeline | 🤖 | ⬜ | |
-| `B-W5D23-6` | `internal/parser/image.go` — Image text extraction via OCR (Tesseract for CLI, Tika for server) for `.png`, `.jpg`, `.jpeg` | 🤖 | ⬜ | |
+| `B-W5D23-6` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts. Auto-detection with `--vision` override. | 🤖 | ⬜ | |
 | `B-W5D23-7` | `internal/generator/scaffolder.go` — `oss import --url <url>` / `oss import --file <path>` → generate full syllabus scaffold | 🤖 | ⬜ | |
 | `B-W5D23-8` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | |
 
@@ -134,7 +134,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D25-4` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | |
 | `B-W5D25-5` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ⬜ | |
 
-**Week 5 Output:** Working GitHub bot that generates content and opens PRs. Three input methods across all interfaces: URL import (web page fetching), file upload (PDF, DOCX, PPTX, TXT, images with OCR), and text (natural language). CLI with validate/generate/translate/import. Server with multi-format extraction via Apache Tika. Feedback API for pai-bot.
+**Week 5 Output:** Working GitHub bot that generates content and opens PRs. Three input methods across all interfaces: URL import (web page fetching), file upload (PDF, DOCX, PPTX, TXT, images with OCR + AI Vision), and text (natural language). CLI with validate/generate/translate/import. Server with multi-format extraction via Apache Tika. Feedback API for pai-bot.
 
 ---
 
@@ -205,7 +205,8 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | PDF import, CLI (50-page syllabus) | <60s |
 | URL import (fetch + extract) | <30s |
 | Document import, server (50-page, any format) | <90s |
-| Image OCR extraction | <15s |
+| Image extraction (OCR) | <5s |
+| Image extraction (AI Vision) | <15s |
 | Bot webhook → PR created | <30s |
 | Web portal preview | <5s |
 | CLI startup | <100ms |
