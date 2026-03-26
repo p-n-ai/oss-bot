@@ -54,10 +54,10 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W4D18-1` | `internal/ai/` — same Provider interface as pai-bot (OpenAI, Anthropic, Ollama) | 🤖 | ✅ | TDD: provider.go, mock.go, openai.go, anthropic.go, ollama.go |
-| `B-W4D18-2` | `internal/generator/context.go` — Context Builder: load target topic + parent subject + syllabus + prerequisites + siblings + schema rules. Build ~8K token context. | 🤖 | ✅ | TDD: 3 tests passing |
-| `B-W4D18-3` | Create `prompts/teaching_notes.md` — template with variables: {{topic}}, {{subject}}, {{prerequisites}}, {{style_examples}}. Encodes pedagogical best practices for KSSM. | 🤖 | ✅ | |
-| `B-W4D18-4` | Create `prompts/assessments.md` — template for generating quiz questions with rubrics, hints, distractors, Bloom's levels, KSSM exam format | 🤖 | ✅ | |
-| `B-W4D18-5` | 🧑 Review and heavily edit prompt templates — these define teaching quality | 🧑 Education Lead (2hr) | ⬜ | Awaiting human review |
+| `B-W4D18-2` | `internal/generator/context.go` — Context Builder: load target topic + parent subject + syllabus + prerequisites + siblings + schema rules. Build ~8K token context. | 🤖 | ✅ | TDD: 3 tests passing. Topic struct updated with tier, mastery fields from real OSS content |
+| `B-W4D18-3` | Create `prompts/teaching_notes.md` — template with variables: {{topic}}, {{subject}}, {{prerequisites}}, {{style_examples}}. Encodes pedagogical best practices for KSSM. | 🤖 | ✅ | Aligned with real OSS content: added DSKP anchors, CFU, The Trap, chatbot rules. Made curriculum-agnostic (no hardcoded KSSM/BM) |
+| `B-W4D18-4` | Create `prompts/assessments.md` — template for generating quiz questions with rubrics, hints, distractors, Bloom's levels, KSSM exam format | 🤖 | ✅ | Aligned with real OSS content: added tp_level, kbat, multiple_choice/free_text types, MISCONCEPTION ALERT pattern. Made curriculum-agnostic |
+| `B-W4D18-5` | 🧑 Review and heavily edit prompt templates — these define teaching quality | 🧑 Education Lead (2hr) | ✅ | Reviewed: identified hardcoded KSSM/BM references, prompts generalized for multi-curriculum support. Verified against real p-n-ai/oss content structure |
 
 ### Day 19 (Thu) — Generation Commands
 
