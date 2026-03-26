@@ -99,9 +99,7 @@ func qualityCmd() *cobra.Command {
 		Use:   "quality [path]",
 		Short: "Generate quality report for curriculum content",
 		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("not yet implemented")
-		},
+		RunE:  runQuality,
 	}
 }
 
@@ -177,6 +175,68 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\n✅ All %d files valid\n", len(results))
+	return nil
+}
+
+func runQuality(cmd *cobra.Command, args []string) error {
+	repoPath := os.Getenv("OSS_REPO_PATH")
+	if repoPath == "" {
+		repoPath = "."
+	}
+	target := repoPath
+	if len(args) > 0 {
+		target = args[0]
+	}
+
+	// Walk the target directory and assess quality of YAML topic files
+	var topics []validator.TopicQuality
+	levelCounts := make(map[int]int)
+
+	err := filepath.Walk(target, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		schemaType := validator.DetectSchemaType(path)
+		if schemaType != "topic" {
+			return nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		topicInfo := validator.TopicInfoFromYAML(data, path, target)
+		actual := validator.AssessQuality(topicInfo)
+		overclaimed := topicInfo.ClaimedLevel > actual
+
+		tq := validator.TopicQuality{
+			ID:           topicInfo.ID,
+			Name:         topicInfo.Name,
+			ActualLevel:  actual,
+			ClaimedLevel: topicInfo.ClaimedLevel,
+			Overclaimed:  overclaimed,
+		}
+		topics = append(topics, tq)
+		levelCounts[actual]++
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("walking directory: %w", err)
+	}
+
+	report := validator.QualityReport{
+		Topics:      topics,
+		LevelCounts: levelCounts,
+	}
+	fmt.Print(validator.FormatQualityReport(report))
+
+	if len(topics) == 0 {
+		fmt.Println("No topic files found.")
+	}
 	return nil
 }
 

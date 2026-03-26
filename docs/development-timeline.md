@@ -43,11 +43,11 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W4D17-1` | `internal/validator/bloom.go` — verify bloom_levels match assessment question verbs | 🤖 | ⬜ | |
-| `B-W4D17-2` | `internal/validator/prerequisites.go` — check prerequisite graph for cycles across all KSSM forms | 🤖 | ⬜ | |
-| `B-W4D17-3` | `internal/validator/duplicates.go` — flag >85% similar assessment questions (cosine similarity on tokenized text) | 🤖 | ⬜ | |
-| `B-W4D17-4` | `internal/validator/quality.go` — auto-assess quality level (0-5) based on present fields | 🤖 | ⬜ | |
-| `B-W4D17-5` | `oss quality [path]` command: print quality report for all topics | 🤖 | ⬜ | |
+| `B-W4D17-1` | `internal/validator/bloom.go` — verify bloom_levels match assessment question verbs | 🤖 | ✅ | TDD: 12 tests (verb lookup + consistency check) |
+| `B-W4D17-2` | `internal/validator/prerequisites.go` — check prerequisite graph for cycles across all KSSM forms | 🤖 | ✅ | TDD: DFS cycle detection + missing prereq detection |
+| `B-W4D17-3` | `internal/validator/duplicates.go` — flag >85% similar assessment questions (cosine similarity on tokenized text) | 🤖 | ✅ | TDD: tokenize, cosine similarity, duplicate pairs |
+| `B-W4D17-4` | `internal/validator/quality.go` — auto-assess quality level (0-5) based on present fields | 🤖 | ✅ | TDD: levels 0-3 tested + TopicInfoFromYAML parser |
+| `B-W4D17-5` | `oss quality [path]` command: print quality report for all topics | 🤖 | ✅ | Wired with directory walk + quality report output |
 
 ### Day 18 (Wed) — AI Content Generation Pipeline
 
