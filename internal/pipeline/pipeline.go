@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/p-n-ai/oss-bot/internal/ai"
 	"github.com/p-n-ai/oss-bot/internal/generator"
@@ -100,6 +101,9 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generating content: %w", err)
 	}
+
+	// Strip markdown code fences (```yaml ... ```) that AI models sometimes add.
+	generated.Content = stripCodeFences(generated.Content)
 
 	// Populate Files map if the generator did not set it.
 	if len(generated.Files) == 0 && generated.Content != "" {
@@ -230,6 +234,17 @@ func buildFilesMap(genCtx *generator.GenerationContext, contribType, content, re
 	case "examples":
 		fileName = genCtx.Topic.ExamplesFile
 	}
+	// Derive filename from topic ID when the YAML field is not set.
+	if fileName == "" && genCtx.Topic.ID != "" {
+		switch contribType {
+		case "teaching_notes":
+			fileName = genCtx.Topic.ID + ".teaching.md"
+		case "assessments":
+			fileName = genCtx.Topic.ID + ".assessments.yaml"
+		case "examples":
+			fileName = genCtx.Topic.ID + ".examples.yaml"
+		}
+	}
 	if fileName == "" {
 		return nil
 	}
@@ -242,6 +257,26 @@ func buildFilesMap(genCtx *generator.GenerationContext, contribType, content, re
 	}
 
 	return map[string]string{filePath: content}
+}
+
+// stripCodeFences removes markdown code fences (```yaml ... ``` or ```markdown ... ```)
+// that AI models sometimes wrap around generated content.
+func stripCodeFences(s string) string {
+	s = strings.TrimSpace(s)
+	// Check for opening fence: ```yaml, ```yml, ```markdown, or bare ```
+	if strings.HasPrefix(s, "```") {
+		// Remove the first line (the opening fence)
+		if idx := strings.Index(s, "\n"); idx != -1 {
+			s = s[idx+1:]
+		}
+		// Remove the closing fence
+		if strings.HasSuffix(strings.TrimSpace(s), "```") {
+			s = strings.TrimSpace(s)
+			s = s[:len(s)-3]
+			s = strings.TrimRight(s, "\n")
+		}
+	}
+	return s
 }
 
 // genLOsToValidatorLOs converts generator learning objectives to the validator package type.

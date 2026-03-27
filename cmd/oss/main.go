@@ -189,7 +189,7 @@ func runGenerateAll(cmd *cobra.Command, _ []string) error {
 				_, err := p.Execute(context.Background(), pipeline.Request{
 					TopicPath:        j.topicID,
 					ContributionType: j.contributionType,
-					Mode:             pipeline.ModePreview,
+					Mode:             pipeline.ModeWriteFS,
 					OutputDir:        repoPath,
 					Source:           "cli",
 				})
