@@ -16,6 +16,7 @@ import (
 	"github.com/p-n-ai/oss-bot/internal/output"
 	"github.com/p-n-ai/oss-bot/internal/parser"
 	"github.com/p-n-ai/oss-bot/internal/pipeline"
+	"github.com/p-n-ai/oss-bot/internal/validator"
 )
 
 func main() {
@@ -57,13 +58,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// GitHub output writer
+	// GitHub output writer (uses App for installation tokens)
 	repoOwner := getEnvOr("OSS_REPO_OWNER", "p-n-ai")
 	repoName := getEnvOr("OSS_REPO_NAME", "oss")
-	writer := output.NewGitHubWriter(repoOwner, repoName)
+	writer := output.NewGitHubWriter(app, repoOwner, repoName)
 
 	// Shared pipeline (all bot commands route through this)
 	p := pipeline.New(aiProvider, writer, "prompts/", os.Getenv("OSS_REPO_PATH"))
+
+	// Attach content reader so the merge stage can read existing repo files.
+	// Uses a startup token — valid for 1 hour. Merge stage is skipped if unavailable.
+	ctx := context.Background()
+	if startupToken, tokenErr := app.InstallationToken(ctx, repoOwner+"/"+repoName); tokenErr == nil {
+		contentsClient := gh.NewGitHubContentsClient(startupToken)
+		p = p.WithContentReader(&gh.GitHubContentsReader{
+			Client: contentsClient,
+			Owner:  repoOwner,
+			Repo:   repoName,
+		})
+		slog.Info("content reader wired — merge stage active")
+	} else {
+		slog.Warn("could not get startup token, merge stage will be skipped", "error", tokenErr)
+	}
 
 	srv := &botServer{
 		app:       app,
@@ -98,9 +114,13 @@ type botServer struct {
 }
 
 // handleCommand is called by the webhook handler for every parsed @oss-bot command.
-// It routes to the shared pipeline and posts the PR link back to the issue.
 func (s *botServer) handleCommand(cmd parser.BotCommand) error {
 	ctx := context.Background()
+
+	// Quality commands are handled separately — they report on existing content.
+	if cmd.Action == "quality" {
+		return s.handleQualityCommand(ctx, cmd)
+	}
 
 	contribType := cmdContribType(cmd)
 	if contribType == "" {
@@ -141,46 +161,98 @@ func (s *botServer) handleCommand(cmd parser.BotCommand) error {
 
 	slog.Info("posting comment to issue", "issue", cmd.IssueNum, "pr", result.PRNumber)
 
-	// Post the comment via the GitHub API using an installation token.
-	token, err := s.installationToken(ctx, cmd.RepoFullName)
+	token, err := s.app.InstallationToken(ctx, cmd.RepoFullName)
 	if err != nil {
-		// Don't fail the whole command if we can't post the comment.
 		slog.Warn("failed to get installation token — skipping comment", "error", err)
 		return nil
 	}
 
 	owner, repo := splitFullName(cmd.RepoFullName, s.repoOwner, s.repoName)
-	if err := postIssueComment(token, owner, repo, cmd.IssueNum, msg); err != nil {
+	if err := postIssueComment(ctx, token, owner, repo, cmd.IssueNum, msg); err != nil {
 		slog.Warn("failed to post comment", "error", err, "issue", cmd.IssueNum)
 	}
 
 	return nil
 }
 
-// installationToken returns a short-lived GitHub App installation access token.
-func (s *botServer) installationToken(ctx context.Context, repoFullName string) (string, error) {
-	jwtToken, err := s.app.GenerateJWT()
+// handleQualityCommand reads a topic from GitHub, assesses its quality, and posts a report.
+func (s *botServer) handleQualityCommand(ctx context.Context, cmd parser.BotCommand) error {
+	slog.Info("running quality check", "topic", cmd.TopicPath, "user", cmd.User)
+
+	token, err := s.app.InstallationToken(ctx, cmd.RepoFullName)
 	if err != nil {
-		return "", fmt.Errorf("generating JWT: %w", err)
+		slog.Warn("failed to get token for quality command", "error", err)
+		return nil
 	}
 
-	installID, err := repoInstallationID(ctx, jwtToken, repoFullName)
-	if err != nil {
-		return "", fmt.Errorf("getting installation: %w", err)
+	owner, repo := splitFullName(cmd.RepoFullName, s.repoOwner, s.repoName)
+
+	// Construct the topic file path: try <topicPath>/topic.yaml or <topicPath> directly.
+	topicFile := cmd.TopicPath
+	if !strings.HasSuffix(topicFile, ".yaml") {
+		topicFile = strings.TrimSuffix(topicFile, "/") + "/topic.yaml"
 	}
 
-	return createInstallationToken(ctx, jwtToken, installID)
+	client := gh.NewGitHubContentsClient(token)
+	data, err := client.ReadFile(owner, repo, topicFile, "main")
+	if err != nil {
+		msg := fmt.Sprintf("Could not read topic file `%s`: %v", topicFile, err)
+		_ = postIssueComment(ctx, token, owner, repo, cmd.IssueNum, msg)
+		return nil
+	}
+
+	info := validator.TopicInfoFromYAML(data, "", "")
+	level := validator.AssessQuality(info)
+
+	levelNames := map[int]string{
+		0: "Stub", 1: "Basic", 2: "Structured",
+		3: "Teachable", 4: "Complete", 5: "Gold",
+	}
+
+	msg := fmt.Sprintf("**Quality report for `%s`**\n\nActual level: **%d (%s)**\n\n",
+		cmd.TopicPath, level, levelNames[level])
+
+	// Describe what's present and what's missing.
+	checks := []struct {
+		ok   bool
+		name string
+	}{
+		{info.HasID, "ID"},
+		{info.HasName, "Name"},
+		{info.HasLearningObjectives, "Learning objectives"},
+		{info.HasBloomLevels, "Bloom levels"},
+		{info.HasPrerequisites, "Prerequisites"},
+		{info.HasDifficulty, "Difficulty"},
+		{info.HasTeachingSequence, "Teaching sequence"},
+		{info.HasMisconceptions, "Common misconceptions"},
+		{info.HasEngagementHooks, "Engagement hooks"},
+	}
+
+	msg += "| Field | Status |\n|---|---|\n"
+	for _, c := range checks {
+		status := "✅"
+		if !c.ok {
+			status = "⬜"
+		}
+		msg += fmt.Sprintf("| %s | %s |\n", c.name, status)
+	}
+
+	if err := postIssueComment(ctx, token, owner, repo, cmd.IssueNum, msg); err != nil {
+		slog.Warn("failed to post quality report", "error", err, "issue", cmd.IssueNum)
+	}
+
+	return nil
 }
 
 // postIssueComment posts a comment to a GitHub issue using the REST API.
-func postIssueComment(token, owner, repo string, issueNum int, body string) error {
+func postIssueComment(ctx context.Context, token, owner, repo string, issueNum int, body string) error {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d/comments", owner, repo, issueNum)
 	payload, err := json.Marshal(map[string]string{"body": body})
 	if err != nil {
 		return fmt.Errorf("marshaling comment: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
@@ -199,64 +271,6 @@ func postIssueComment(token, owner, repo string, issueNum int, body string) erro
 		return fmt.Errorf("GitHub API returned %s", resp.Status)
 	}
 	return nil
-}
-
-// repoInstallationID looks up the GitHub App installation ID for a repository.
-func repoInstallationID(ctx context.Context, jwtToken, repoFullName string) (int64, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/installation", repoFullName)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("Authorization", "Bearer "+jwtToken)
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return 0, fmt.Errorf("GitHub API returned %s", resp.Status)
-	}
-
-	var result struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return 0, err
-	}
-	return result.ID, nil
-}
-
-// createInstallationToken exchanges a JWT for a GitHub App installation access token.
-func createInstallationToken(ctx context.Context, jwtToken string, installationID int64) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/app/installations/%d/access_tokens", installationID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+jwtToken)
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("GitHub API returned %s", resp.Status)
-	}
-
-	var result struct {
-		Token string `json:"token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
-	}
-	return result.Token, nil
 }
 
 // cmdContribType maps a parsed bot command to a pipeline contribution type string.

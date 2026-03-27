@@ -143,17 +143,17 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
-| `B-W5D25-11` | `internal/github/client.go` — minimal stdlib HTTP client: `GetRef`, `CreateRef`, `PutContents`, `CreatePull`, `ReadFile`. Tests use `httptest.NewServer`. | 🤖 | ⬜ | Gap 1+3 from Day 22: no go-github dep |
-| `B-W5D25-12` | Implement `GitHubWriter.CreatePR` (branch → commit → PR). Add `GitHubContentsClient` + `GitHubContentsReader`. Wire reader in `cmd/bot/main.go` so merge stage activates. | 🤖 | ⬜ | Gap 1+3 from Day 22: prerequisite for B-W5D25-9 |
-| `B-W5D25-1` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ⬜ | |
-| `B-W5D25-2` | Create `prompts/contribution_parser.md` — parse natural language teacher input into structured YAML, preserve teacher's voice | 🤖 | ⬜ | |
-| `B-W5D25-3` | `internal/parser/contribution.go` — teacher writes "My students always confuse the negative sign when expanding brackets" → structured misconception entry | 🤖 | ⬜ | |
-| `B-W5D25-4` | `POST /api/feedback` — endpoint for pai-bot to submit observed patterns (misconception frequency, explanation effectiveness) | 🤖 | ⬜ | |
-| `B-W5D25-5` | Feedback handler: receive structured feedback → run generation pipeline → create PR with provenance:ai-observed label | 🤖 | ⬜ | |
-| `B-W5D25-6` | Dockerfile: multi-stage Go build for both CLI binary and bot server | 🤖 | ⬜ | |
-| `B-W5D25-7` | `docker-compose.yml`: bot server + Apache Tika sidecar + webhook tunnel (for dev) | 🤖 | ⬜ | |
-| `B-W5D25-8` | README.md: CLI installation (go install + pre-built binaries), GitHub App setup, bot deployment | 🤖 | ⬜ | |
-| `B-W5D25-9` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | |
+| `B-W5D25-11` | `internal/github/client.go` — minimal stdlib HTTP client: `GetRef`, `CreateRef`, `PutContents`, `CreatePull`, `ReadFile`. Tests use `httptest.NewServer`. | 🤖 | ✅ | Added `ListDir`; `InstallationToken` moved to `App` in `app.go` |
+| `B-W5D25-12` | Implement `GitHubWriter.CreatePR` (branch → commit → PR). Add `GitHubContentsClient` + `GitHubContentsReader`. Wire reader in `cmd/bot/main.go` so merge stage activates. | 🤖 | ✅ | `NewGitHubWriter` now takes `*App`; startup token wired; merge stage active |
+| `B-W5D25-1` | `@oss-bot quality` command — responds with quality report for the topic in the issue | 🤖 | ✅ | `handleQualityCommand` in `cmd/bot/main.go`; reads topic via `GitHubContentsClient` |
+| `B-W5D25-2` | Create `prompts/contribution_parser.md` — parse natural language teacher input into structured YAML, preserve teacher's voice | 🤖 | ✅ | |
+| `B-W5D25-3` | `internal/parser/contribution.go` — teacher writes "My students always confuse the negative sign when expanding brackets" → structured misconception entry | 🤖 | ✅ | `ParseContribution(ctx, provider, input, promptsDir)` |
+| `B-W5D25-4` | `POST /api/feedback` — endpoint for pai-bot to submit observed patterns (misconception frequency, explanation effectiveness) | 🤖 | ✅ | `internal/api/feedback.go` + `router.go` |
+| `B-W5D25-5` | Feedback handler: receive structured feedback → run generation pipeline → create PR with provenance:ai-observed label | 🤖 | ✅ | `FeedbackHandler` in `internal/api/feedback.go` |
+| `B-W5D25-6` | Dockerfile: multi-stage Go build for both CLI binary and bot server | 🤖 | ✅ | `deploy/docker/Dockerfile` |
+| `B-W5D25-7` | `docker-compose.yml`: bot server + Apache Tika sidecar + webhook tunnel (for dev) | 🤖 | ✅ | Ollama in optional `ollama` profile |
+| `B-W5D25-8` | README.md: CLI installation (go install + pre-built binaries), GitHub App setup, bot deployment | 🤖 | ✅ | Added quality command, feedback API, test-webhook.sh docs |
+| `B-W5D25-9` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | Requires live GitHub App credentials |
 | `B-W5D25-10` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ⬜ | |
 
 **Week 5 Output:** Working GitHub bot that generates content and opens PRs with intelligent content merging (additive by default). Scaffolding for new countries/syllabi/subjects. Bulk import from large documents (100-page PDFs, textbooks, DSKP). Reasoning model integration for complex analysis. Three input methods: URL import, file upload (PDF, DOCX, PPTX, TXT, images with OCR + AI Vision), and text (natural language). Multi-subject Bloom's taxonomy. Feedback API for pai-bot.

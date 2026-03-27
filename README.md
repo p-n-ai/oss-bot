@@ -78,6 +78,14 @@ Creates the directory structure, syllabus.yaml, subject files, and topic stubs (
 
 Attach a curriculum document (PDF, DOCX, PPTX, XLSX, or HTML) to the issue. The bot extracts the structure using Apache Tika, maps it to OSS schema, infers Bloom's taxonomy levels from specification verbs, and creates topic stubs. Opens a PR tagged `needs-educator-review`.
 
+#### Check Topic Quality
+
+```
+@oss-bot quality cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations
+```
+
+The bot reads the topic YAML and reports the current quality level (0–5) along with which fields are present or missing.
+
 #### Enrich from Classroom Experience
 
 ```
@@ -522,9 +530,29 @@ go run ./cmd/oss validate --repo-path ../oss
 npx smee -u https://smee.io/your-channel -p 8090
 go run ./cmd/bot
 
+# Test the webhook handler with a simulated event
+OSS_GITHUB_WEBHOOK_SECRET=test-secret ./scripts/test-webhook.sh
+
 # Run the web portal
 cd web && npm install && npm run dev
 ```
+
+### Feedback API (pai-bot integration)
+
+The bot exposes a `POST /api/feedback` endpoint for [pai-bot](https://github.com/p-n-ai/pai-bot) to submit observed learning patterns as curriculum contributions.
+
+```bash
+curl -X POST http://localhost:8090/api/feedback \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic_path": "mathematics/algebra/03-simultaneous-equations",
+    "content_type": "teaching_notes",
+    "observation": "Students consistently struggle with the substitution step when coefficients are fractions.",
+    "source": "pai-bot"
+  }'
+```
+
+Generated content uses `provenance: ai-observed` and is reviewed before merging.
 
 ### Running Tests
 

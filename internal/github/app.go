@@ -2,10 +2,13 @@
 package github
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -39,6 +42,82 @@ func NewApp(appID int64, keyPath string) (*App, error) {
 		AppID:      appID,
 		PrivateKey: key,
 	}, nil
+}
+
+// InstallationToken returns a short-lived GitHub App installation access token for the given repo.
+// It generates a JWT, looks up the installation ID, then exchanges it for an access token.
+func (a *App) InstallationToken(ctx context.Context, repoFullName string) (string, error) {
+	jwtToken, err := a.GenerateJWT()
+	if err != nil {
+		return "", fmt.Errorf("generating JWT: %w", err)
+	}
+
+	installID, err := repoInstallationID(ctx, jwtToken, repoFullName)
+	if err != nil {
+		return "", fmt.Errorf("getting installation ID for %s: %w", repoFullName, err)
+	}
+
+	return createInstallationToken(ctx, jwtToken, installID)
+}
+
+// repoInstallationID looks up the GitHub App installation ID for a repository.
+func repoInstallationID(ctx context.Context, jwtToken, repoFullName string) (int64, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/installation", repoFullName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return 0, fmt.Errorf("GitHub API returned %s", resp.Status)
+	}
+
+	var result struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+	return result.ID, nil
+}
+
+// createInstallationToken exchanges a JWT for a GitHub App installation access token.
+func createInstallationToken(ctx context.Context, jwtToken string, installationID int64) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/app/installations/%d/access_tokens", installationID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("GitHub API returned %s", resp.Status)
+	}
+
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	return result.Token, nil
 }
 
 // GenerateJWT creates a signed JWT for GitHub App authentication.

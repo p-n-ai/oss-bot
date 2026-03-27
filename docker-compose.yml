@@ -1,0 +1,45 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    ports:
+      - "8090:8090"
+    env_file:
+      - .env
+    environment:
+      - OSS_TIKA_URL=http://tika:9998
+    depends_on:
+      tika:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Apache Tika sidecar for multi-format document extraction (PDF, DOCX, PPTX, etc.)
+  tika:
+    image: apache/tika:latest
+    ports:
+      - "9998:9998"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9998/tika"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Optional: local Ollama for free AI generation (enable with --profile ollama)
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    profiles:
+      - ollama
+
+volumes:
+  ollama-data:
