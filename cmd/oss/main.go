@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/p-n-ai/oss-bot/internal/ai"
@@ -459,6 +461,7 @@ Example:
 	cmd.Flags().String("syllabus", "", "Target syllabus ID (required, e.g. malaysia-kssm)")
 	cmd.Flags().String("subject", "", "Target subject ID (e.g. malaysia-kssm-matematik-tingkatan-4)")
 	cmd.Flags().Int("workers", 3, "Number of parallel AI workers (overrides OSS_WORKER_COUNT)")
+	cmd.Flags().Int("chunk-size", 2000, "Max tokens per chunk (lower = more files, higher = less context loss)")
 	cmd.Flags().Bool("pr", false, "Create a GitHub PR instead of writing to filesystem")
 	cmd.MarkFlagRequired("pdf")
 	cmd.MarkFlagRequired("syllabus")
@@ -468,7 +471,9 @@ Example:
 func runImport(cmd *cobra.Command, _ []string) error {
 	pdfPath, _ := cmd.Flags().GetString("pdf")
 	syllabusID, _ := cmd.Flags().GetString("syllabus")
+	subjectID, _ := cmd.Flags().GetString("subject")
 	workers, _ := cmd.Flags().GetInt("workers")
+	chunkSize, _ := cmd.Flags().GetInt("chunk-size")
 	createPR, _ := cmd.Flags().GetBool("pr")
 
 	repoPath := os.Getenv("OSS_REPO_PATH")
@@ -489,20 +494,32 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("Extracted %d characters\n", len(text))
 
-	// 2. Chunk the document at heading/chapter boundaries.
-	// Include Malay chapter markers ("Bab") alongside standard Markdown headings.
+	// 2. Chunk the document. Try heading-based splitting first (Markdown + Malay
+	// DSKP markers). A lower MaxChunkSize forces size-based splits even when
+	// the whole document would otherwise fit in one chunk.
 	chunks := parser.ChunkDocument(text, parser.ChunkOptions{
-		SplitOn: []string{"# ", "## ", "### ", "Chapter ", "Bab ", "BAB "},
+		MaxChunkSize: chunkSize,
+		SplitOn:      []string{"# ", "## ", "### ", "Chapter ", "Bab ", "BAB ", "BAHAGIAN ", "Bahagian ", "TAJUK", "Tajuk"},
 	})
 	fmt.Printf("Split into %d chunks\n", len(chunks))
 
-	// 3. Determine output mode
+	// 3. Resolve output directory — search for existing subject topics dir
+	// created by scaffold, fall back to a flat output dir.
+	topicsDir, err := findSubjectTopicsDir(repoPath, subjectID, syllabusID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		topicsDir = filepath.Join(repoPath, "import-output", syllabusID)
+		fmt.Printf("Writing to fallback dir: %s\n", topicsDir)
+	}
+	if err := os.MkdirAll(topicsDir, 0755); err != nil {
+		return fmt.Errorf("creating output dir %s: %w", topicsDir, err)
+	}
+
+	// 4. Run bulk import with progress reporting
 	mode := pipeline.ModeWriteFS
 	if createPR {
 		mode = pipeline.ModeCreatePR
 	}
-
-	// 4. Run bulk import with progress reporting
 	result, err := pipeline.ExecuteBulk(cmd.Context(), pipeline.BulkRequest{
 		Chunks:     chunks,
 		SyllabusID: syllabusID,
@@ -516,9 +533,29 @@ func runImport(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("bulk import: %w", err)
 	}
 
-	// 5. Summary
-	fmt.Printf("\nProcessed %d/%d chunks in %s\n",
-		result.ProcessedChunks, len(chunks), result.Duration.Round(time.Second))
+	// 5. Write each topic output to a YAML file
+	written := 0
+	for _, tr := range result.Topics {
+		if tr.Err != nil || strings.TrimSpace(tr.Output) == "" {
+			continue
+		}
+		slug := importSlug(tr.Heading)
+		if slug == "" {
+			slug = fmt.Sprintf("topic-%02d", tr.ChunkIndex+1)
+		}
+		outPath := filepath.Join(topicsDir, slug+".yaml")
+		if err := os.WriteFile(outPath, []byte(tr.Output), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ writing %s: %v\n", outPath, err)
+			continue
+		}
+		fmt.Printf("  wrote: %s\n", outPath)
+		written++
+	}
+
+	// 6. Summary
+	fmt.Printf("\nProcessed %d/%d chunks in %s — wrote %d file(s) to %s\n",
+		result.ProcessedChunks, len(chunks), result.Duration.Round(time.Second),
+		written, topicsDir)
 
 	if len(result.Errors) > 0 {
 		fmt.Fprintf(os.Stderr, "%d chunks failed:\n", len(result.Errors))
@@ -527,6 +564,55 @@ func runImport(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	return nil
+}
+
+// findSubjectTopicsDir searches under repoPath for an existing topics directory
+// whose parent directory name matches subjectID or syllabusID. This locates
+// directories created by "oss scaffold subject" without needing the country.
+// Falls back to a path derived from syllabusID if no match is found.
+func findSubjectTopicsDir(repoPath, subjectID, syllabusID string) (string, error) {
+	if subjectID == "" && syllabusID == "" {
+		return "", fmt.Errorf("no subject or syllabus ID provided")
+	}
+
+	searchID := subjectID
+	if searchID == "" {
+		searchID = syllabusID
+	}
+
+	var found string
+	_ = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || found != "" {
+			return nil
+		}
+		if d.IsDir() && d.Name() == searchID {
+			found = filepath.Join(path, "topics")
+			return fs.SkipAll
+		}
+		return nil
+	})
+
+	if found != "" {
+		return found, nil
+	}
+	return "", fmt.Errorf("directory %q not found under %s — run 'oss scaffold subject' first", searchID, repoPath)
+}
+
+// importSlug converts a heading string into a lowercase hyphenated filename slug.
+func importSlug(heading string) string {
+	slug := strings.ToLower(heading)
+	var b strings.Builder
+	prevHyphen := false
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevHyphen = false
+		} else if !prevHyphen {
+			b.WriteByte('-')
+			prevHyphen = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 // resolveSourceText reads text from a file path or returns the provided text directly.
