@@ -123,7 +123,7 @@ func TopicInfoFromYAML(data []byte, filePath, baseDir string) TopicInfo {
 			}
 		}
 	}
-	if prereqs, ok := raw["prerequisites"].([]interface{}); ok && len(prereqs) > 0 {
+	if _, ok := raw["prerequisites"]; ok {
 		info.HasPrerequisites = true
 	}
 	if _, ok := raw["difficulty"]; ok {

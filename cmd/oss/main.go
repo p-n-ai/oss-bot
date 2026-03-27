@@ -270,12 +270,23 @@ func discoverTopicIDs(topicsDir string) ([]string, error) {
 }
 
 func qualityCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "quality [path]",
 		Short: "Generate quality report for curriculum content",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runQuality,
+		Long: `Analyze quality levels of topic YAML files and generate a report.
+
+You can specify a directory path directly, or use --syllabus and --subject-grade
+flags to resolve the path automatically.
+
+Examples:
+  oss quality /path/to/topics
+  oss quality --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: runQuality,
 	}
+	cmd.Flags().String("syllabus", "", "Syllabus ID (e.g. malaysia-kssm)")
+	cmd.Flags().String("subject-grade", "", "Subject grade ID (e.g. malaysia-kssm-matematik-tingkatan-5)")
+	return cmd
 }
 
 func translateCmd() *cobra.Command {
@@ -358,9 +369,22 @@ func runQuality(cmd *cobra.Command, args []string) error {
 	if repoPath == "" {
 		repoPath = "."
 	}
-	target := repoPath
-	if len(args) > 0 {
+
+	syllabusID, _ := cmd.Flags().GetString("syllabus")
+	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
+
+	var target string
+	switch {
+	case len(args) > 0:
 		target = args[0]
+	case subjectGradeID != "" || syllabusID != "":
+		dir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectBaseID(subjectGradeID), syllabusID)
+		if err != nil {
+			return err
+		}
+		target = dir
+	default:
+		target = repoPath
 	}
 
 	// Walk the target directory and assess quality of YAML topic files
