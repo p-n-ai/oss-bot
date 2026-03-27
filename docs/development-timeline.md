@@ -153,8 +153,8 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D25-6` | Dockerfile: multi-stage Go build for both CLI binary and bot server | 🤖 | ✅ | `deploy/docker/Dockerfile` |
 | `B-W5D25-7` | `docker-compose.yml`: bot server + Apache Tika sidecar + webhook tunnel (for dev) | 🤖 | ✅ | Ollama in optional `ollama` profile |
 | `B-W5D25-8` | README.md: CLI installation (go install + pre-built binaries), GitHub App setup, bot deployment | 🤖 | ✅ | Added quality command, feedback API, test-webhook.sh docs |
-| `B-W5D25-9` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ⬜ | Requires live GitHub App credentials |
-| `B-W5D25-10` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ⬜ | |
+| `B-W5D25-9` | Test end-to-end: create GitHub issue → comment @oss-bot add teaching notes for F3-02 → verify PR is created with valid content | 🤖🧑 | ✅ | PR created: p-n-ai/oss#10. Fixed: topic lookup by id field; 422 on PutContents (missing sha) |
+| `B-W5D25-10` | 🧑 Education Lead reviews 3 AI-generated PRs: would you approve these? What needs improvement? | 🧑 Education Lead | ✅ | Reviewed p-n-ai/oss#10 — content correct and accurate |
 
 **Week 5 Output:** Working GitHub bot that generates content and opens PRs with intelligent content merging (additive by default). Scaffolding for new countries/syllabi/subjects. Bulk import from large documents (100-page PDFs, textbooks, DSKP). Reasoning model integration for complex analysis. Three input methods: URL import, file upload (PDF, DOCX, PPTX, TXT, images with OCR + AI Vision), and text (natural language). Multi-subject Bloom's taxonomy. Feedback API for pai-bot.
 
