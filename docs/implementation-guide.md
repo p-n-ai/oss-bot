@@ -70,6 +70,86 @@ go version && node --version && golangci-lint --version && docker --version
 
 ---
 
+## Global Conventions — MANDATORY for All Implementation Days
+
+> These rules apply to **every day** of the implementation. Read them once here; they are not repeated per-day.
+
+### ID and Naming Conventions
+
+**Full reference:** [`docs/id-conventions.md`](id-conventions.md) — read it before writing any generator, prompt, or YAML builder.
+
+#### Core rules
+
+| Rule | Detail |
+|------|--------|
+| IDs use MOE official language | Subject/grade IDs follow the Ministry of Education language for that country (Malay for KSSM, English for CBSE, etc.) |
+| Topic prefix from English | Topic ID prefix (e.g. `MT`, `PHY`) is always derived from the **English** subject name — language-neutral |
+| `name` + `name_en` always | Every generated YAML must have `name` (MOE language) **and** `name_en` (English) |
+| `text` + `text_en` in LOs | Every learning objective must have `text` (MOE language) **and** `text_en` (English) |
+| `official_ref` when present | Capture the board's own chapter/section code verbatim; omit field if the source has none |
+| Folder name = entity ID | `curricula/{country_id}/{syllabus_id}/{subject_id}/` — folder names equal the full entity ID, never an abbreviation |
+| `country_id` not `country` | YAML field is `country_id`, matching the ID convention; use the English common name slug (e.g. `malaysia`) |
+| `grade_id` in subject YAML | Include `grade_id` extracted from the subject ID slug (e.g. `tingkatan-3`, `class-12`) |
+| `language` BCP 47 | Every entity YAML includes `language:` as a BCP 47 code (`ms`, `id`, `en`, `ja`, `ar`) |
+
+#### Required YAML fields per entity
+
+```yaml
+# syllabus.yaml
+id: malaysia-kssm
+name: "Kurikulum Standard Sekolah Menengah"   # MOE language
+name_en: "Malaysian Standard Secondary School Curriculum"
+country_id: malaysia
+language: ms
+description: "..."
+subjects: []
+provenance: ai-generated
+generated_at: "..."
+
+# subject.yaml
+id: malaysia-kssm-matematik-tingkatan-3
+name: "Matematik Tingkatan 3"    # MOE language
+name_en: "Mathematics Form 3"    # English
+syllabus_id: malaysia-kssm
+grade_id: tingkatan-3
+country_id: malaysia
+language: ms
+provenance: ai-generated
+generated_at: "..."
+
+# topics/{TOPIC_ID}.yaml
+id: MT3-09
+official_ref: "Bab 9"           # board's code; omit if absent
+name: "Garis Lurus"             # MOE language
+name_en: "Straight Lines"       # English
+subject_id: malaysia-kssm-matematik-tingkatan-3
+syllabus_id: malaysia-kssm
+country_id: malaysia
+language: ms
+difficulty: beginner
+learning_objectives:
+  - id: LO1
+    text: "..."       # MOE language
+    text_en: "..."    # English
+    bloom: apply
+prerequisites:
+  required: []
+quality_level: 0
+provenance: ai-generated
+generated_at: "..."
+```
+
+#### Enforcement checklist (apply to every generator/scaffolder PR)
+
+- [ ] All generated YAML has `name` (MOE language) **and** `name_en`
+- [ ] Topic IDs follow `{PREFIX}{grade_num}-{NN}` with English-derived prefix
+- [ ] Subject folder name = full `subject_id` (not just subject slug)
+- [ ] YAML includes `country_id`, `grade_id` (subjects/topics), `language`
+- [ ] Prompt templates use `{{syllabus_id}}` — no hardcoded curriculum names
+- [ ] `official_ref` extracted from source docs when a formal code is present
+
+---
+
 ## WEEKS 1-3 — NO OSS-BOT WORK
 
 OSS Bot is not needed during the content validation phase (Weeks 1-3). During this period, curriculum content is created manually in the [p-n-ai/oss](https://github.com/p-n-ai/oss) repository.

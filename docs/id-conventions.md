@@ -186,7 +186,7 @@ Rules:
 
 **Format:** `{PREFIX}{grade_num}-{NN}`
 
-- **PREFIX** — 2–3 uppercase letters derived from the **English subject name** (language-neutral, for tooling)
+- **PREFIX** — 2 uppercase letters derived from the **English subject name** (language-neutral, for tooling)
 - **grade_num** — the grade number only (e.g. `1` for Tingkatan 1, `12` for Class 12)
 - **NN** — 2-digit zero-padded sequence number within the subject+grade, matching chapter/topic order in the official syllabus document
 
@@ -204,15 +204,15 @@ MT3-09
 SA2-01
 SA2-07
 
-# Malaysia KSSM Fizik Tingkatan 4 → prefix PHY, grade 4
-PHY4-01
+# Malaysia KSSM Fizik Tingkatan 4 → prefix PH, grade 4
+PH4-01
 
-# India CBSE Physics Class 12 → prefix PHY, grade 12
-PHY12-01
+# India CBSE Physics Class 12 → prefix PH, grade 12
+PH12-01
 
-# Cambridge IGCSE Mathematics (no grade) → prefix MAT
-MAT-01
-MAT-14
+# Cambridge IGCSE Mathematics (no grade) → prefix MT
+MT-01
+MT-14
 ```
 
 **Prefix table** (derived from English name — language-neutral):
@@ -221,15 +221,16 @@ MAT-14
 |------------------------|-------------------|--------|
 | Matematik, Matematika, Mathematics | Mathematics | `MT` |
 | Sains, Ilmu Pengetahuan Alam, Science | Science | `SC` |
-| Fizik, Fisika, Physics | Physics | `PHY` |
-| Kimia, Kimia, Chemistry | Chemistry | `CHM` |
-| Biologi, Biologi, Biology | Biology | `BIO` |
-| Sejarah, History | History | `HIS` |
-| Geografi, Geography | Geography | `GEO` |
-| Bahasa Melayu, Indonesian | Malay/Indonesian Language | `BM` |
-| English Language | English | `ENG` |
+| Fizik, Fisika, Physics | Physics | `PH` |
+| Kimia, Kimia, Chemistry | Chemistry | `CH` |
+| Biologi, Biologi, Biology | Biology | `BI` |
+| Sejarah, History | History | `HI` |
+| Geografi, Geography | Geography | `GE` |
+| Bahasa Melayu | Malay Language | `BM` |
+| Indonesian | Indonesian Language | `ID` |
+| English Language | English | `EN` |
 | Bahasa Arab, Arabic | Arabic | `AR` |
-| Other | First 2–3 consonants of English name | — |
+| Other | First 2 consonants of English name | — |
 
 Topic prefixes are always derived from English to keep them consistent across languages. This means `MT3-01` is unambiguous whether the subject is called "Matematik" (Malaysia), "Matematika" (Indonesia), or "Mathematics" (India).
 
@@ -274,7 +275,7 @@ language: ms
 ```
 
 ```yaml
-id: MAT-05
+id: MT-05
 official_ref: "C2.5"              # Cambridge IGCSE 0580 syllabus section
 name: Coordinate Geometry
 name_en: Coordinate Geometry

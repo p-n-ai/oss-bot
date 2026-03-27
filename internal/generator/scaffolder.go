@@ -37,7 +37,8 @@ type ScaffoldResult struct {
 type SyllabusYAML struct {
 	ID          string   `yaml:"id"`
 	Name        string   `yaml:"name"`
-	Country     string   `yaml:"country"`
+	NameEn      string   `yaml:"name_en"`
+	CountryID   string   `yaml:"country_id"`
 	Language    string   `yaml:"language"`
 	Description string   `yaml:"description"`
 	Subjects    []string `yaml:"subjects"`
@@ -75,7 +76,7 @@ func (s *Scaffolder) ScaffoldSyllabus(ctx context.Context, req ScaffoldRequest) 
 		country = "unknown"
 	}
 
-	syllabusYAML := buildSyllabusYAML(req.SyllabusID, name, country, description, subjects)
+	syllabusYAML := buildSyllabusYAML(req.SyllabusID, name, name, country, description, subjects)
 
 	syllabusPath := filepath.Join("curricula", country, req.SyllabusID, "syllabus.yaml")
 	files := map[string]string{syllabusPath: syllabusYAML}
@@ -85,7 +86,7 @@ func (s *Scaffolder) ScaffoldSyllabus(ctx context.Context, req ScaffoldRequest) 
 	for _, subject := range subjects {
 		subjectID := req.SyllabusID + "-" + toSlug(subject)
 		subjectPath := filepath.Join("curricula", country, req.SyllabusID, subjectID, "subject.yaml")
-		files[subjectPath] = buildSubjectYAML(subjectID, subject, req.SyllabusID)
+		files[subjectPath] = buildSubjectYAML(subjectID, subject, subject, req.SyllabusID, country)
 	}
 
 	return &ScaffoldResult{
@@ -118,7 +119,7 @@ func (s *Scaffolder) ScaffoldSubject(ctx context.Context, req ScaffoldRequest) (
 
 	// subject.yaml
 	subjectPath := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "subject.yaml")
-	files[subjectPath] = buildSubjectYAML(req.SubjectID, name, req.SyllabusID)
+	files[subjectPath] = buildSubjectYAML(req.SubjectID, name, name, req.SyllabusID, country)
 
 	// topic stubs — topic ID uses the English-derived prefix + grade number from subject name
 	prefix := subjectPrefix(name)
@@ -126,7 +127,7 @@ func (s *Scaffolder) ScaffoldSubject(ctx context.Context, req ScaffoldRequest) (
 	for i, topic := range topics {
 		topicID := fmt.Sprintf("%s%s-%02d", prefix, gradeNum, i+1)
 		topicPath := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "topics", topicID+".yaml")
-		files[topicPath] = buildTopicStubYAML(topicID, topic, req.SubjectID, req.SyllabusID)
+		files[topicPath] = buildTopicStubYAML(topicID, topic, topic, req.SubjectID, req.SyllabusID, country)
 	}
 
 	return &ScaffoldResult{
@@ -238,38 +239,61 @@ func parseSubjectAIResponse(response, fallbackID string) (name string, topics []
 	return name, topics, nil
 }
 
-func buildSyllabusYAML(id, name, country, description string, subjects []string) string {
+// buildSyllabusYAML emits a syllabus.yaml stub following docs/id-conventions.md.
+// name is in the MOE official language; name_en is the English equivalent (may equal name
+// when the MOE language is English, or be left blank for a human to fill in).
+func buildSyllabusYAML(id, name, nameEn, countryID, description string, subjects []string) string {
+	lang := countryLanguage(countryID)
 	var sb strings.Builder
 	sb.WriteString("id: " + id + "\n")
 	sb.WriteString("name: \"" + name + "\"\n")
-	sb.WriteString("country: " + country + "\n")
-	sb.WriteString("language: en\n")
+	sb.WriteString("name_en: \"" + nameEn + "\"\n")
+	sb.WriteString("country_id: " + countryID + "\n")
+	sb.WriteString("language: " + lang + "\n")
 	sb.WriteString("description: \"" + description + "\"\n")
 	sb.WriteString("subjects:\n")
 	for _, s := range subjects {
-		sb.WriteString("  - " + toSlug(s) + "\n")
+		// subjects list holds full subject IDs: {syllabus_id}-{subject_slug}
+		sb.WriteString("  - " + id + "-" + toSlug(s) + "\n")
 	}
 	sb.WriteString("provenance: ai-generated\n")
 	sb.WriteString("generated_at: \"" + time.Now().UTC().Format(time.RFC3339) + "\"\n")
 	return sb.String()
 }
 
-func buildSubjectYAML(id, name, syllabusID string) string {
+// buildSubjectYAML emits a subject.yaml stub following docs/id-conventions.md.
+// name is in the MOE official language; name_en is the English equivalent.
+func buildSubjectYAML(id, name, nameEn, syllabusID, countryID string) string {
+	lang := countryLanguage(countryID)
+	gradeID := gradeIDFromSubjectID(id)
 	var sb strings.Builder
 	sb.WriteString("id: " + id + "\n")
 	sb.WriteString("name: \"" + name + "\"\n")
+	sb.WriteString("name_en: \"" + nameEn + "\"\n")
 	sb.WriteString("syllabus_id: " + syllabusID + "\n")
+	if gradeID != "" {
+		sb.WriteString("grade_id: " + gradeID + "\n")
+	}
+	sb.WriteString("country_id: " + countryID + "\n")
+	sb.WriteString("language: " + lang + "\n")
 	sb.WriteString("provenance: ai-generated\n")
 	sb.WriteString("generated_at: \"" + time.Now().UTC().Format(time.RFC3339) + "\"\n")
 	return sb.String()
 }
 
-func buildTopicStubYAML(id, name, subjectID, syllabusID string) string {
+// buildTopicStubYAML emits a topic YAML stub following docs/id-conventions.md.
+// name is in the MOE official language; name_en is the English equivalent.
+func buildTopicStubYAML(id, name, nameEn, subjectID, syllabusID, countryID string) string {
+	lang := countryLanguage(countryID)
 	var sb strings.Builder
 	sb.WriteString("id: " + id + "\n")
+	sb.WriteString("# official_ref: \"\"  # fill in if the source document assigns a chapter/section code\n")
 	sb.WriteString("name: \"" + name + "\"\n")
+	sb.WriteString("name_en: \"" + nameEn + "\"\n")
 	sb.WriteString("subject_id: " + subjectID + "\n")
 	sb.WriteString("syllabus_id: " + syllabusID + "\n")
+	sb.WriteString("country_id: " + countryID + "\n")
+	sb.WriteString("language: " + lang + "\n")
 	sb.WriteString("difficulty: beginner\n")
 	sb.WriteString("learning_objectives: []\n")
 	sb.WriteString("prerequisites:\n")
@@ -278,6 +302,57 @@ func buildTopicStubYAML(id, name, subjectID, syllabusID string) string {
 	sb.WriteString("provenance: ai-generated\n")
 	sb.WriteString("generated_at: \"" + time.Now().UTC().Format(time.RFC3339) + "\"\n")
 	return sb.String()
+}
+
+// gradeIDFromSubjectID extracts the grade segment from a subject ID slug.
+// It walks the parts right-to-left and returns the last word-plus-number pair it finds.
+// e.g. "malaysia-kssm-matematik-tingkatan-3" → "tingkatan-3"
+//
+//	"india-cbse-physics-class-12"           → "class-12"
+//	"uk-cambridge-igcse-mathematics-0580"   → "" (code, not a grade)
+func gradeIDFromSubjectID(subjectID string) string {
+	parts := strings.Split(subjectID, "-")
+	for i := len(parts) - 1; i >= 1; i-- {
+		p := parts[i]
+		// A grade segment ends with a 1-2 digit number.
+		allDigits := len(p) > 0 && len(p) <= 2
+		for _, ch := range p {
+			if ch < '0' || ch > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			// The word before the number is the grade label (e.g. "tingkatan", "class", "year").
+			return parts[i-1] + "-" + p
+		}
+	}
+	return ""
+}
+
+// countryLanguage returns the BCP 47 language code for a country's MOE official language.
+// Defaults to "en" for unlisted countries.
+func countryLanguage(countryID string) string {
+	switch countryID {
+	case "malaysia":
+		return "ms"
+	case "indonesia":
+		return "id"
+	case "japan":
+		return "ja"
+	case "uae":
+		return "ar"
+	case "thailand":
+		return "th"
+	case "vietnam":
+		return "vi"
+	case "china":
+		return "zh-hans"
+	case "korea", "south-korea":
+		return "ko"
+	default:
+		return "en"
+	}
 }
 
 // subjectPrefix maps a subject name (any MOE language) to an English-derived
