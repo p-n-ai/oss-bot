@@ -88,7 +88,7 @@ func TestPipeline_MergeWithExisting(t *testing.T) {
 	repoDir := setupPipelineTestRepoWithNotes(t)
 
 	existingNotes := "## Overview\nExisting overview.\n\n## Teaching Sequence & Strategy\nExisting strategy.\n"
-	topicRelPath := filepath.Join("curricula", "test", "topics", "algebra", "F1-01.teaching.md")
+	topicRelPath := filepath.Join("curricula", "test", "test-algebra", "test-algebra-1", "topics", "F1-01.teaching.md")
 
 	reader := &mockContentReader{
 		content: map[string][]byte{
@@ -209,7 +209,7 @@ func TestPipeline_BloomValidation_NoErrorsForValidTopic(t *testing.T) {
 func setupPipelineTestRepoInvalidBloom(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	topicsDir := filepath.Join(dir, "curricula", "test", "topics", "algebra")
+	topicsDir := filepath.Join(dir, "curricula", "test", "test-algebra", "test-algebra-1", "topics")
 	os.MkdirAll(topicsDir, 0o755)
 	os.WriteFile(filepath.Join(topicsDir, "bad.yaml"), []byte(`
 id: F1-BAD
@@ -233,7 +233,7 @@ func setupPipelineTestRepoWithNotes(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	topicsDir := filepath.Join(dir, "curricula", "test", "topics", "algebra")
+	topicsDir := filepath.Join(dir, "curricula", "test", "test-algebra", "test-algebra-1", "topics")
 	os.MkdirAll(topicsDir, 0o755)
 
 	os.WriteFile(filepath.Join(topicsDir, "01-test.yaml"), []byte(`
@@ -260,7 +260,7 @@ func setupPipelineTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	topicsDir := filepath.Join(dir, "curricula", "test", "topics", "algebra")
+	topicsDir := filepath.Join(dir, "curricula", "test", "test-algebra", "test-algebra-1", "topics")
 	os.MkdirAll(topicsDir, 0o755)
 
 	os.WriteFile(filepath.Join(topicsDir, "01-test.yaml"), []byte(`

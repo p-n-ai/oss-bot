@@ -68,8 +68,8 @@ func TestValidateDir(t *testing.T) {
 
 	dir := t.TempDir()
 
-	// Create a topics subdirectory with valid YAML
-	topicsDir := filepath.Join(dir, "topics", "algebra")
+	// Create a topics subdirectory with valid YAML (new structure: subject/subject_grade/topics/)
+	topicsDir := filepath.Join(dir, "test-subject", "test-subject-1", "topics")
 	if err := os.MkdirAll(topicsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -90,11 +90,12 @@ func TestDetectSchemaType(t *testing.T) {
 		path     string
 		expected string
 	}{
-		{"syllabus", "curricula/malaysia/kssm/syllabus.yaml", "syllabus"},
-		{"subject", "curricula/malaysia/kssm/subjects/algebra.yaml", "subject"},
-		{"topic", "curricula/malaysia/kssm/topics/algebra/01-test.yaml", "topic"},
-		{"assessments", "curricula/malaysia/kssm/topics/algebra/01-test.assessments.yaml", "assessments"},
-		{"examples", "curricula/malaysia/kssm/topics/algebra/01-test.examples.yaml", "examples"},
+		{"syllabus", "curricula/malaysia/malaysia-kssm/syllabus.yaml", "syllabus"},
+		{"subject", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/subject.yaml", "subject"},
+		{"subject_grade", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/subject-grade.yaml", "subject_grade"},
+		{"topic", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/topics/MT3-01.yaml", "topic"},
+		{"assessments", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/topics/MT3-01.assessments.yaml", "assessments"},
+		{"examples", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/topics/MT3-01.examples.yaml", "examples"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

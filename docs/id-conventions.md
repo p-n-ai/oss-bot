@@ -40,7 +40,8 @@ For countries not listed, use the primary language of instruction as declared by
 | Country | `{name}` | `malaysia`, `india`, `uk` |
 | Syllabus | `{country}-{board}` | `malaysia-kssm`, `india-cbse` |
 | Grade | `{grade-name}` in MOE language | `tingkatan-1`, `class-10`, `year-9` |
-| Subject | `{syllabus}-{subject}-{grade}` | `malaysia-kssm-matematik-tingkatan-1` |
+| Subject | `{syllabus}-{subject}` | `malaysia-kssm-matematik`, `india-cbse-physics` |
+| Subject Grade | `{subject_id}-{grade}` | `malaysia-kssm-matematik-tingkatan-1` |
 | Topic | `{PREFIX}{grade_num}-{NN}` | `MT1-01`, `SA2-03`, `PHY12-01` |
 | Learning Objective | `LO{N}` | `LO1`, `LO2` |
 | Assessment Question | `Q{N}` | `Q1`, `Q5` |
@@ -145,30 +146,29 @@ Rules:
 
 ## Subject ID
 
-**Format:** `{syllabus-id}-{subject}-{grade-id}`
+**Format:** `{syllabus-id}-{subject}`
 
-Subject names use the **official MOE language**:
+Subject IDs identify the subject **without** a grade. Subject names use the **official MOE language**:
 
 ```
 # Malaysia KSSM — Malay subject names (KPM official)
-malaysia-kssm-matematik-tingkatan-1
-malaysia-kssm-matematik-tingkatan-3
-malaysia-kssm-sains-tingkatan-2
-malaysia-kssm-fizik-tingkatan-4
-malaysia-kssm-kimia-tingkatan-4
-malaysia-kssm-biologi-tingkatan-4
-malaysia-kssm-sejarah-tingkatan-1
-malaysia-kssm-bahasa-melayu-tingkatan-3
+malaysia-kssm-matematik
+malaysia-kssm-sains
+malaysia-kssm-fizik
+malaysia-kssm-kimia
+malaysia-kssm-biologi
+malaysia-kssm-sejarah
+malaysia-kssm-bahasa-melayu
 
 # Indonesia K13 — Indonesian subject names (Kemendikbud official)
-indonesia-k13-matematika-kelas-10
-indonesia-k13-fisika-kelas-11
-indonesia-k13-biologi-kelas-10
+indonesia-k13-matematika
+indonesia-k13-fisika
+indonesia-k13-biologi
 
 # India CBSE — English subject names (CBSE official)
-india-cbse-mathematics-class-10
-india-cbse-physics-class-12
-india-cbse-chemistry-class-11
+india-cbse-mathematics
+india-cbse-physics
+india-cbse-chemistry
 
 # UK Cambridge IGCSE — English subject names + code
 uk-cambridge-igcse-mathematics-0580
@@ -178,7 +178,45 @@ uk-cambridge-igcse-physics-0625
 Rules:
 - Use the official subject name from the MOE curriculum document, slugified
 - Keep the syllabus subject code if the board uses one (e.g. `0580` for IGCSE Maths)
-- Grade is always the last component
+- Grade is **not** included in the subject ID (see Subject Grade ID below)
+
+---
+
+## Subject Grade ID
+
+**Format:** `{subject-id}-{grade-id}`
+
+Subject Grade IDs combine the subject with a specific grade level. These are used as folder names and YAML IDs for the grade-specific content:
+
+```
+# Malaysia KSSM
+malaysia-kssm-matematik-tingkatan-1
+malaysia-kssm-matematik-tingkatan-3
+malaysia-kssm-sains-tingkatan-2
+malaysia-kssm-fizik-tingkatan-4
+malaysia-kssm-kimia-tingkatan-4
+malaysia-kssm-biologi-tingkatan-4
+malaysia-kssm-sejarah-tingkatan-1
+malaysia-kssm-bahasa-melayu-tingkatan-3
+
+# Indonesia K13
+indonesia-k13-matematika-kelas-10
+indonesia-k13-fisika-kelas-11
+indonesia-k13-biologi-kelas-10
+
+# India CBSE
+india-cbse-mathematics-class-10
+india-cbse-physics-class-12
+india-cbse-chemistry-class-11
+
+# UK Cambridge IGCSE (no grade — subject_grade_id equals subject_id)
+uk-cambridge-igcse-mathematics-0580
+uk-cambridge-igcse-physics-0625
+```
+
+Rules:
+- Appends the grade ID to the subject ID
+- For exam-based syllabi with no grade structure (e.g. IGCSE, JEE), the subject grade ID equals the subject ID
 
 ---
 
@@ -268,7 +306,8 @@ id: MT3-09
 official_ref: "Bab 9"              # as printed in KSSM document; omit if absent
 name: Garis Lurus
 name_en: Straight Lines
-subject_id: malaysia-kssm-matematik-tingkatan-3
+subject_grade_id: malaysia-kssm-matematik-tingkatan-3
+subject_id: malaysia-kssm-matematik
 syllabus_id: malaysia-kssm
 country_id: malaysia
 language: ms
@@ -279,6 +318,7 @@ id: MT-05
 official_ref: "C2.5"              # Cambridge IGCSE 0580 syllabus section
 name: Coordinate Geometry
 name_en: Coordinate Geometry
+subject_grade_id: uk-cambridge-igcse-mathematics-0580
 subject_id: uk-cambridge-igcse-mathematics-0580
 syllabus_id: uk-cambridge-igcse
 country_id: uk
@@ -294,9 +334,21 @@ Every entity YAML includes English alongside the official language. This enables
 ### Subject YAML
 
 ```yaml
+id: malaysia-kssm-matematik
+name: Matematik                    # official MOE language
+name_en: Mathematics               # English for interoperability
+syllabus_id: malaysia-kssm
+country_id: malaysia
+language: ms                        # BCP 47 language code
+```
+
+### Subject Grade YAML
+
+```yaml
 id: malaysia-kssm-matematik-tingkatan-3
 name: Matematik Tingkatan 3         # official MOE language
 name_en: Mathematics Form 3         # English for interoperability
+subject_id: malaysia-kssm-matematik
 syllabus_id: malaysia-kssm
 grade_id: tingkatan-3
 country_id: malaysia
@@ -310,7 +362,8 @@ id: MT3-09
 official_ref: "Bab 9"              # board's own chapter/topic code; omit if absent
 name: Garis Lurus                   # official MOE language
 name_en: Straight Lines             # English for interoperability
-subject_id: malaysia-kssm-matematik-tingkatan-3
+subject_grade_id: malaysia-kssm-matematik-tingkatan-3
+subject_id: malaysia-kssm-matematik
 syllabus_id: malaysia-kssm
 country_id: malaysia
 language: ms
@@ -391,7 +444,9 @@ Every folder and file in `curricula/` is named after the `id` field of the YAML 
 |-------|-----------------|--------|
 | Country | `malaysia/` | `country_id` |
 | Syllabus | `malaysia-kssm/` | `syllabus_id` |
-| Subject | `malaysia-kssm-matematik-tingkatan-3/` | `subject_id` |
+| Subject | `malaysia-kssm-matematik/` | `subject_id` |
+| Subject Grade | `malaysia-kssm-matematik-tingkatan-3/` | `subject_grade_id` |
+| Subject Grade file | `subject-grade.yaml` | fixed name |
 | Topic file | `MT3-09.yaml` | `topic_id` + `.yaml` |
 | Teaching notes | `MT3-09.teaching.md` | `topic_id` + `.teaching.md` |
 | Assessments | `MT3-09.assessments.yaml` | `topic_id` + `.assessments.yaml` |
@@ -408,7 +463,7 @@ Every folder and file in `curricula/` is named after the `id` field of the YAML 
 
 ### Folder naming rules
 
-1. **Always use the full entity ID** — never abbreviate. Subject folder is `malaysia-kssm-matematik-tingkatan-3`, not `matematik` or `math-t3`.
+1. **Always use the full entity ID** — never abbreviate. Subject folder is `malaysia-kssm-matematik`, not `matematik` or `math`. Subject grade folder is `malaysia-kssm-matematik-tingkatan-3`, not `tingkatan-3` or `t3`.
 2. **Lowercase kebab-case** — no uppercase letters, no underscores, no spaces.
 3. **No version suffixes in folder names** — versioning is handled inside `syllabus.yaml` via a `version` field.
 4. **Language of folder names** follows the ID convention — MOE language for grades and subjects, English for countries.
@@ -419,47 +474,51 @@ Every folder and file in `curricula/` is named after the `id` field of the YAML 
 
 ```
 curricula/
-└── {country_id}/                              # e.g. malaysia/
-    └── {syllabus_id}/                         # e.g. malaysia-kssm/
-        ├── syllabus.yaml                      # id: malaysia-kssm
-        └── {subject_id}/                      # e.g. malaysia-kssm-matematik-tingkatan-3/
-            ├── subject.yaml                   # id: malaysia-kssm-matematik-tingkatan-3
-            └── topics/
-                ├── {topic_id}.yaml            # e.g. MT3-09.yaml
-                ├── {topic_id}.teaching.md
-                ├── {topic_id}.assessments.yaml
-                ├── {topic_id}.examples.yaml
-                └── translations/
-                    └── {lang}/                # e.g. en/
-                        ├── {topic_id}.teaching.md
-                        └── {topic_id}.assessments.yaml
+└── {country_id}/                                # e.g. malaysia/
+    └── {syllabus_id}/                           # e.g. malaysia-kssm/
+        ├── syllabus.yaml                        # id:  malaysia-kssm
+        └── {subject_id}/                        # e.g. malaysia-kssm-matematik/
+            ├── subject.yaml                     # id:  malaysia-kssm-matematik
+            └── {subject_grade_id}/              # e.g. malaysia-kssm-matematik-tingkatan-3/
+                ├── subject-grade.yaml           # id:  malaysia-kssm-matematik-tingkatan-3
+                └── topics/
+                    ├── {topic_id}.yaml          # e.g. MT3-09.yaml
+                    ├── {topic_id}.teaching.md
+                    ├── {topic_id}.assessments.yaml
+                    ├── {topic_id}.examples.yaml
+                    └── translations/
+                        └── {lang}/                # e.g. en/
+                            ├── {topic_id}.teaching.md
+                            └── {topic_id}.assessments.yaml
 ```
 
-**Full example — Malaysia KSSM Matematik Tingkatan 3:**
+**Full example — Malaysia KSSM Matematik:**
 
 ```
 curricula/
 └── malaysia/
     └── malaysia-kssm/
         ├── syllabus.yaml
-        ├── malaysia-kssm-matematik-tingkatan-1/
-        │   ├── subject.yaml
-        │   └── topics/
-        │       ├── MT1-01.yaml
-        │       └── MT1-01.teaching.md
-        └── malaysia-kssm-matematik-tingkatan-3/
+        └── malaysia-kssm-matematik/
             ├── subject.yaml
-            └── topics/
-                ├── MT3-01.yaml
-                ├── MT3-01.teaching.md
-                ├── MT3-01.assessments.yaml
-                ├── MT3-09.yaml
-                ├── MT3-09.teaching.md
-                ├── MT3-09.assessments.yaml
-                └── translations/
-                    └── en/
-                        ├── MT3-09.teaching.md
-                        └── MT3-09.assessments.yaml
+            ├── malaysia-kssm-matematik-tingkatan-1/
+            │   ├── subject-grade.yaml
+            │   └── topics/
+            │       ├── MT1-01.yaml
+            │       └── MT1-01.teaching.md
+            └── malaysia-kssm-matematik-tingkatan-3/
+                ├── subject-grade.yaml
+                └── topics/
+                    ├── MT3-01.yaml
+                    ├── MT3-01.teaching.md
+                    ├── MT3-01.assessments.yaml
+                    ├── MT3-09.yaml
+                    ├── MT3-09.teaching.md
+                    ├── MT3-09.assessments.yaml
+                    └── translations/
+                        └── en/
+                            ├── MT3-09.teaching.md
+                            └── MT3-09.assessments.yaml
 ```
 
 ---
@@ -469,11 +528,12 @@ curricula/
 The OSS validator enforces these patterns via JSON Schema:
 
 ```yaml
-topic_id:    pattern: "^[A-Z]{2,3}[0-9]*-[0-9]{2}$"
-syllabus_id: pattern: "^[a-z][a-z0-9-]+$"
-subject_id:  pattern: "^[a-z][a-z0-9-]+$"
-country_id:  pattern: "^[a-z][a-z0-9-]+$"
-grade_id:    pattern: "^[a-z][a-z0-9-]+$"
+topic_id:          pattern: "^[A-Z]{2,3}[0-9]*-[0-9]{2}$"
+syllabus_id:       pattern: "^[a-z][a-z0-9-]+$"
+subject_id:        pattern: "^[a-z][a-z0-9-]+$"
+subject_grade_id:  pattern: "^[a-z][a-z0-9-]+$"
+country_id:        pattern: "^[a-z][a-z0-9-]+$"
+grade_id:          pattern: "^[a-z][a-z0-9-]+$"
 ```
 
 ---

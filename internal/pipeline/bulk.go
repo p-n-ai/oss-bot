@@ -35,7 +35,7 @@ type BulkResult struct {
 type BulkRequest struct {
 	Chunks     []parser.Chunk   // Document chunks to process in parallel
 	SyllabusID string           // Target syllabus identifier
-	SubjectID  string           // Target subject (e.g. malaysia-kssm-matematik-tingkatan-4); optional
+	SubjectGradeID string       // Target subject grade (e.g. malaysia-kssm-matematik-tingkatan-4); optional
 	Mode       ExecutionMode    // ModePreview, ModeWriteFS, or ModeCreatePR
 	Source     string           // "cli", "bot", "web" — for provenance
 	Workers    int              // Concurrent workers (0 defaults to 3)
@@ -195,11 +195,11 @@ func syllabusTopicPath(syllabusID, heading string) string {
 	return "syllabi/" + syllabusID + "/" + slug + ".yaml"
 }
 
-// chunkSubjectID returns the effective subject ID for a bulk request:
-// SubjectID if set, otherwise SyllabusID as a fallback.
-func chunkSubjectID(req BulkRequest) string {
-	if req.SubjectID != "" {
-		return req.SubjectID
+// chunkSubjectGradeID returns the effective subject grade ID for a bulk request:
+// SubjectGradeID if set, otherwise SyllabusID as a fallback.
+func chunkSubjectGradeID(req BulkRequest) string {
+	if req.SubjectGradeID != "" {
+		return req.SubjectGradeID
 	}
 	return req.SyllabusID
 }
@@ -319,7 +319,7 @@ func processChunk(ctx context.Context, req BulkRequest, chunk parser.Chunk) (str
 
 	// Compute per-topic OSS metadata. Pre-filling known fields in the prompt
 	// prevents the AI from hallucinating subject_id, country_id, etc.
-	subjectID := chunkSubjectID(req)
+	subjectID := chunkSubjectGradeID(req)
 	topicID := chunkTopicFileID(subjectID, chunk.Heading, chunk.Index)
 	if topicID == "" {
 		slug := strings.ToLower(strings.Join(strings.Fields(chunk.Heading), "-"))

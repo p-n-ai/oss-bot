@@ -166,6 +166,10 @@ func DetectSchemaType(path string) string {
 		return "assessments"
 	case strings.HasSuffix(base, ".examples.yaml"):
 		return "examples"
+	case base == "subject.yaml" || base == "subject.yml":
+		return "subject"
+	case base == "subject-grade.yaml" || base == "subject-grade.yml":
+		return "subject_grade"
 	case strings.Contains(path, "subjects/") || strings.Contains(path, "subjects\\"):
 		return "subject"
 	case strings.Contains(path, "topics/") || strings.Contains(path, "topics\\"):

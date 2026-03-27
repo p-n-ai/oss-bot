@@ -198,7 +198,7 @@ oss import --pdf <file> --syllabus <id> [flags]
 |------|---------|-------------|
 | `--pdf` | *(required)* | Path to the PDF file |
 | `--syllabus` | *(required)* | Target syllabus ID, e.g. `malaysia-kssm` |
-| `--subject` | `""` | Subject ID for correct file naming, e.g. `malaysia-kssm-matematik-tingkatan-4`. When set, output files follow the OSS topic ID convention (`MT4-01.yaml`, `PH12-03.yaml`, etc.) |
+| `--subject-grade` | `""` | Subject grade ID for correct file naming, e.g. `malaysia-kssm-matematik-tingkatan-4`. When set, output files follow the OSS topic ID convention (`MT4-01.yaml`, `PH12-03.yaml`, etc.) and are placed under `{subject_id}/{subject_grade_id}/topics/` |
 | `--workers` | `3` | Number of parallel AI workers — each processes one topic concurrently |
 | `--chunk-size` | `2000` | Max tokens per chunk for the generic chunker. Lower values force more splits on dense documents |
 | `--force` | `false` | **Replace** existing topic files outright. Default (`false`) AI-merges new content into the existing file without losing any objectives |
@@ -208,24 +208,29 @@ oss import --pdf <file> --syllabus <id> [flags]
 
 ```bash
 # Typical workflow: scaffold the subject first, then import
-oss scaffold subject --syllabus malaysia-kssm --id malaysia-kssm-matematik-tingkatan-4
+oss scaffold subject \
+  --syllabus malaysia-kssm \
+  --id malaysia-kssm-matematik \
+  --grade-id malaysia-kssm-matematik-tingkatan-4 \
+  --country malaysia
+
 oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
            --syllabus malaysia-kssm \
-           --subject malaysia-kssm-matematik-tingkatan-4
+           --subject-grade malaysia-kssm-matematik-tingkatan-4
 
 # More workers for a large document
 oss import --pdf textbook.pdf \
            --syllabus india-cbse \
-           --subject india-cbse-physics-class-12 \
+           --subject-grade india-cbse-physics-class-12 \
            --workers 5
 
 # Re-import from scratch — replace all existing files
 oss import --pdf DSKP.pdf --syllabus malaysia-kssm \
-           --subject malaysia-kssm-matematik-tingkatan-4 --force
+           --subject-grade malaysia-kssm-matematik-tingkatan-4 --force
 
 # Open a GitHub PR directly instead of writing to disk
 oss import --pdf DSKP.pdf --syllabus malaysia-kssm \
-           --subject malaysia-kssm-matematik-tingkatan-4 --pr
+           --subject-grade malaysia-kssm-matematik-tingkatan-4 --pr
 ```
 
 **What it does**
@@ -234,7 +239,7 @@ oss import --pdf DSKP.pdf --syllabus malaysia-kssm \
 2. **DSKP auto-detection** — if `BIDANG PEMBELAJARAN` / `TAJUK` markers are found (Malaysian KSSM curriculum documents), splits exactly on those boundaries for per-chapter accuracy; otherwise falls back to generic heading-based chunking
 3. Processes each topic in parallel using the configured number of workers
 4. Names output files using the [OSS ID convention](docs/id-conventions.md) — e.g. `MT4-01.yaml` for Matematik Tingkatan 4 Chapter 1, `PH12-03.yaml` for Physics Class 12 Chapter 3
-5. Each generated file includes: `id`, `official_ref`, `name` (MOE language), `name_en` (English translation), `subject_id`, `syllabus_id`, `country_id`, `language`, `difficulty`, `tier`, `learning_objectives` (with SP codes and Bloom's levels in English), `prerequisites`, `mastery`, `provenance: ai-assisted`
+5. Each generated file includes: `id`, `official_ref`, `name` (MOE language), `name_en` (English translation), `subject_grade_id`, `subject_id`, `syllabus_id`, `country_id`, `language`, `difficulty`, `tier`, `learning_objectives` (with SP codes and Bloom's levels in English), `prerequisites`, `mastery`, `provenance: ai-assisted`
 6. **Existing file handling:**
    - `--force` not set (default): AI compares the existing file with the newly extracted content and produces a single merged YAML — new objectives are added, duplicates are skipped, identity fields (`id`, `subject_id`, etc.) are preserved
    - `--force` set: existing file is overwritten with the freshly generated content
@@ -249,7 +254,7 @@ export OSS_AI_REASONING_MODEL=deepseek/deepseek-r1   # optional — this is the 
 
 oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
            --syllabus malaysia-kssm \
-           --subject malaysia-kssm-matematik-tingkatan-4
+           --subject-grade malaysia-kssm-matematik-tingkatan-4
 ```
 
 Expected output:
@@ -316,13 +321,41 @@ Cross-curriculum links: 4/8 topics linked to universal concepts
 
 ```bash
 # Create a new syllabus for any country
-oss scaffold syllabus --country india --name "JEE" --board cbse
+oss scaffold syllabus --id india-jee --country india
 
-# Create a new subject within a syllabus
-oss scaffold subject --syllabus india-jee --name "Chemistry" --grade 11
+# Create a new subject + subject_grade within a syllabus
+oss scaffold subject \
+  --syllabus malaysia-kssm \
+  --id malaysia-kssm-matematik \
+  --grade-id malaysia-kssm-matematik-tingkatan-3 \
+  --country malaysia
 ```
 
-Creates the full directory structure and stub YAML files for a new curriculum.
+The `scaffold subject` command creates the three-level directory structure:
+
+```
+curricula/malaysia/malaysia-kssm/
+└── malaysia-kssm-matematik/                         # subject (grade-less)
+    ├── subject.yaml                                 # id: malaysia-kssm-matematik
+    └── malaysia-kssm-matematik-tingkatan-3/         # subject_grade (with grade)
+        ├── subject-grade.yaml                    # id: malaysia-kssm-matematik-tingkatan-3
+        └── topics/
+            ├── MT3-01.yaml
+            ├── MT3-02.yaml
+            └── ...
+```
+
+**Flags**
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--syllabus` | Yes | Syllabus ID, e.g. `malaysia-kssm` |
+| `--id` | Yes | Subject ID — grade-less, e.g. `malaysia-kssm-matematik` |
+| `--grade-id` | No | Subject grade ID — with grade, e.g. `malaysia-kssm-matematik-tingkatan-3`. If omitted, defaults to `--id` (for grade-less syllabi like IGCSE) |
+| `--country` | No | Country code, e.g. `malaysia` |
+| `--from-file` | No | Path to subject document for AI-assisted topic extraction |
+
+See [ID conventions](docs/id-conventions.md) for the full naming rules.
 
 #### Contribute via CLI
 

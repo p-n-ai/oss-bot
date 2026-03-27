@@ -80,10 +80,11 @@ func TestScaffoldSubject(t *testing.T) {
 	s := generator.NewScaffolder(mock)
 
 	result, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{
-		SyllabusID: "india-jee",
-		SubjectID:  "mathematics",
-		Country:    "india",
-		SourceText: "Mathematics syllabus covering Algebra, Calculus, and Trigonometry.",
+		SyllabusID:     "india-jee",
+		SubjectID:      "india-jee-mathematics",
+		SubjectGradeID: "india-jee-mathematics-class-11",
+		Country:        "india",
+		SourceText:     "Mathematics syllabus covering Algebra, Calculus, and Trigonometry.",
 	})
 	if err != nil {
 		t.Fatalf("ScaffoldSubject() error = %v", err)
@@ -102,6 +103,19 @@ func TestScaffoldSubject(t *testing.T) {
 		}
 	})
 
+	t.Run("subject-grade-yaml-created", func(t *testing.T) {
+		found := false
+		for path := range result.Files {
+			if strings.Contains(path, "subject-grade.yaml") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("ScaffoldSubject() should create a subject-grade.yaml file")
+		}
+	})
+
 	t.Run("topic-stubs-created", func(t *testing.T) {
 		topicCount := 0
 		for path := range result.Files {
@@ -113,13 +127,86 @@ func TestScaffoldSubject(t *testing.T) {
 			t.Error("ScaffoldSubject() should create topic stub files")
 		}
 	})
+
+	t.Run("paths-follow-new-structure", func(t *testing.T) {
+		for path := range result.Files {
+			if strings.Contains(path, "topics/") {
+				// Topic paths should be: .../india-jee-mathematics/india-jee-mathematics-class-11/topics/...
+				if !strings.Contains(path, "india-jee-mathematics/india-jee-mathematics-class-11/topics/") {
+					t.Errorf("topic path %q should contain subject/subject_grade/topics/ structure", path)
+				}
+			}
+		}
+	})
+}
+
+func TestScaffoldSubject_MalayNameStripping(t *testing.T) {
+	// Mock returns Malay name with grade — subject.yaml should get grade-less name.
+	mockResponse := "NAME: Matematik Tingkatan 4\nTOPICS:\n- Fungsi Dan Persamaan Kuadratik\n- Asas Nombor"
+	mock := ai.NewMockProvider(mockResponse)
+	s := generator.NewScaffolder(mock)
+
+	result, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{
+		SyllabusID:     "malaysia-kssm",
+		SubjectID:      "malaysia-kssm-matematik",
+		SubjectGradeID: "malaysia-kssm-matematik-tingkatan-4",
+		Country:        "malaysia",
+		SourceText:     "Matematik Tingkatan 4 DSKP",
+	})
+	if err != nil {
+		t.Fatalf("ScaffoldSubject() error = %v", err)
+	}
+
+	t.Run("subject-yaml-has-grade-less-name", func(t *testing.T) {
+		for path, content := range result.Files {
+			if strings.HasSuffix(path, "subject.yaml") {
+				// Check that the name: field (not name_en) has the grade-less name.
+				if !strings.Contains(content, "\nname: \"Matematik\"\n") {
+					t.Errorf("subject.yaml name should be 'Matematik', got:\n%s", content)
+				}
+			}
+		}
+	})
+
+	t.Run("subject-grade-yaml-has-full-name", func(t *testing.T) {
+		for path, content := range result.Files {
+			if strings.HasSuffix(path, "subject-grade.yaml") {
+				if !strings.Contains(content, `name: "Matematik Tingkatan 4"`) {
+					t.Errorf("subject-grade.yaml should have full name with grade, got:\n%s", content)
+				}
+			}
+		}
+	})
+}
+
+func TestStripGradeFromName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Matematik Tingkatan 4", "Matematik"},
+		{"Fizik Tingkatan 4", "Fizik"},
+		{"Matematika Kelas 10", "Matematika"},
+		{"Physics Class 12", "Physics"},
+		{"Mathematics Form 3", "Mathematics"},
+		{"Mathematics Year 10", "Mathematics"},
+		{"Mathematics", "Mathematics"},                         // no grade
+		{"Bahasa Melayu Tingkatan 3", "Bahasa Melayu"},        // multi-word subject
+		{"Sains Komputer Tingkatan 4", "Sains Komputer"},      // multi-word subject
+	}
+	for _, c := range tests {
+		got := generator.StripGradeFromName(c.input)
+		if got != c.want {
+			t.Errorf("StripGradeFromName(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
 }
 
 func TestScaffoldSubject_RequiresIDs(t *testing.T) {
 	s := generator.NewScaffolder(ai.NewMockProvider(""))
 
 	t.Run("requires-syllabus-id", func(t *testing.T) {
-		_, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{SubjectID: "math"})
+		_, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{SubjectID: "jee-math"})
 		if err == nil {
 			t.Error("ScaffoldSubject() should error when SyllabusID is empty")
 		}

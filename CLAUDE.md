@@ -133,7 +133,7 @@ go run ./cmd/oss translate --topic <path> --to <lang>
 go run ./cmd/oss quality <syllabus-path>
 go run ./cmd/oss scaffold syllabus --country india --name JEE
 go run ./cmd/oss scaffold subject --syllabus india-jee --name Chemistry --grade 11
-go run ./cmd/oss import --file textbook.pdf --syllabus india-jee --subject chemistry-11
+go run ./cmd/oss import --file textbook.pdf --syllabus india-jee --subject-grade india-jee-chemistry-class-11
 
 # Bot development
 npx smee -u https://smee.io/<channel> -p 8090   # Forward webhooks locally
@@ -263,7 +263,8 @@ All entity IDs follow **[`docs/id-conventions.md`](docs/id-conventions.md)**. Co
 | Country | `{english-name}` slug | `malaysia`, `india` |
 | Syllabus | `{country}-{board}` | `malaysia-kssm` |
 | Grade | `{grade-name}` in MOE language | `tingkatan-1`, `class-10` |
-| Subject | `{syllabus}-{subject}-{grade}` in MOE language | `malaysia-kssm-matematik-tingkatan-1` |
+| Subject | `{syllabus}-{subject}` in MOE language | `malaysia-kssm-matematik` |
+| Subject Grade | `{subject_id}-{grade}` | `malaysia-kssm-matematik-tingkatan-1` |
 | Topic | `{PREFIX}{grade_num}-{NN}` (prefix from English name) | `MT1-01`, `MT3-09`, `PHY12-03` |
 
 Every generated YAML must include both `name` (MOE language) and `name_en` (English).

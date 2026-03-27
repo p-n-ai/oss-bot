@@ -15,8 +15,13 @@ import (
 type ScaffoldRequest struct {
 	// SyllabusID is the unique identifier for the new syllabus (e.g. "india-jee").
 	SyllabusID string
-	// SubjectID is the subject to scaffold within the syllabus (empty for syllabus-level).
+	// SubjectID is the grade-less subject identifier (e.g. "india-jee-mathematics").
+	// For ScaffoldSubject, this is the parent folder under the syllabus.
 	SubjectID string
+	// SubjectGradeID is the full subject+grade identifier (e.g. "india-jee-mathematics-class-11").
+	// This is the subfolder under SubjectID that contains topics.
+	// If empty during ScaffoldSubject, it is derived from SubjectID + grade.
+	SubjectGradeID string
 	// SourceText is the pre-extracted content from a document, URL, or text input.
 	SourceText string
 	// OutputDir is the root directory to write scaffolded files into.
@@ -82,7 +87,7 @@ func (s *Scaffolder) ScaffoldSyllabus(ctx context.Context, req ScaffoldRequest) 
 	files := map[string]string{syllabusPath: syllabusYAML}
 
 	// Generate subject directory stubs.
-	// Subject ID = {syllabus_id}-{subject_slug} so the folder name equals the full subject ID.
+	// Subject ID = {syllabus_id}-{subject_slug} (grade-less) so the folder name equals the full subject ID.
 	for _, subject := range subjects {
 		subjectID := req.SyllabusID + "-" + toSlug(subject)
 		subjectPath := filepath.Join("curricula", country, req.SyllabusID, subjectID, "subject.yaml")
@@ -95,7 +100,8 @@ func (s *Scaffolder) ScaffoldSyllabus(ctx context.Context, req ScaffoldRequest) 
 	}, nil
 }
 
-// ScaffoldSubject creates a new subject directory within an existing syllabus.
+// ScaffoldSubject creates a new subject + subject_grade directory within an existing syllabus.
+// The directory structure is: {subject_id}/subject.yaml + {subject_id}/{subject_grade_id}/subject-grade.yaml + topics/
 func (s *Scaffolder) ScaffoldSubject(ctx context.Context, req ScaffoldRequest) (*ScaffoldResult, error) {
 	if req.SyllabusID == "" {
 		return nil, fmt.Errorf("SyllabusID is required")
@@ -109,30 +115,57 @@ func (s *Scaffolder) ScaffoldSubject(ctx context.Context, req ScaffoldRequest) (
 		country = "unknown"
 	}
 
-	name, topics, err := s.extractSubjectInfo(ctx, req)
+	// Determine subject_grade_id: use explicit value or fall back to SubjectID (for grade-less syllabi).
+	subjectGradeID := req.SubjectGradeID
+	if subjectGradeID == "" {
+		subjectGradeID = req.SubjectID
+	}
+
+	lang := countryLanguage(country)
+
+	// Extract subject info from source text via AI.
+	// The AI returns the full name with grade (e.g. "Matematik Tingkatan 4").
+	fullName, topics, err := s.extractSubjectInfo(ctx, req)
 	if err != nil {
-		name = req.SubjectID
+		fullName = req.SubjectID
 		topics = []string{}
 	}
 
+	// Derive grade-less subject name (e.g. "Matematik Tingkatan 4" → "Matematik").
+	subjectName := StripGradeFromName(fullName)
+	subjectGradeName := fullName
+
+	// Translate names to English when the MOE language is not English.
+	subjectNameEn := s.translateToEnglish(ctx, subjectName, lang)
+	subjectGradeNameEn := s.translateToEnglish(ctx, subjectGradeName, lang)
+	topicNamesEn := s.translateTopicNames(ctx, topics, lang)
+
 	files := map[string]string{}
 
-	// subject.yaml
+	// subject.yaml — lives in the grade-less subject folder
 	subjectPath := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "subject.yaml")
-	files[subjectPath] = buildSubjectYAML(req.SubjectID, name, name, req.SyllabusID, country)
+	files[subjectPath] = buildSubjectYAML(req.SubjectID, subjectName, subjectNameEn, req.SyllabusID, country)
 
-	// topic stubs — topic ID uses the English-derived prefix + grade number from subject name
-	prefix := subjectPrefix(name)
-	gradeNum := gradeNumberFromSubjectID(req.SubjectID)
+	// subject-grade.yaml — lives in the subject_grade subfolder
+	subjectGradePath := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, subjectGradeID, "subject-grade.yaml")
+	files[subjectGradePath] = buildSubjectGradeYAML(subjectGradeID, subjectGradeName, subjectGradeNameEn, req.SubjectID, req.SyllabusID, country)
+
+	// topic stubs — topic ID uses the English-derived prefix + grade number
+	prefix := subjectPrefix(subjectName)
+	gradeNum := gradeNumberFromSubjectID(subjectGradeID)
 	for i, topic := range topics {
 		topicID := fmt.Sprintf("%s%s-%02d", prefix, gradeNum, i+1)
-		topicPath := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "topics", topicID+".yaml")
-		files[topicPath] = buildTopicStubYAML(topicID, topic, topic, req.SubjectID, req.SyllabusID, country)
+		topicNameEn := topic // fallback
+		if i < len(topicNamesEn) {
+			topicNameEn = topicNamesEn[i]
+		}
+		topicPath := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, subjectGradeID, "topics", topicID+".yaml")
+		files[topicPath] = buildTopicStubYAML(topicID, topic, topicNameEn, subjectGradeID, req.SubjectID, req.SyllabusID, country)
 	}
 
 	return &ScaffoldResult{
 		Files:   files,
-		Summary: fmt.Sprintf("Scaffolded subject %q with %d topic stubs", req.SubjectID, len(topics)),
+		Summary: fmt.Sprintf("Scaffolded subject %q grade %q with %d topic stubs", req.SubjectID, subjectGradeID, len(topics)),
 	}, nil
 }
 
@@ -183,11 +216,11 @@ func (s *Scaffolder) extractSubjectInfo(ctx context.Context, req ScaffoldRequest
 
 	prompt := fmt.Sprintf(
 		"From the following curriculum document, extract:\n"+
-			"1. The official subject name\n"+
-			"2. A list of topic names (one per line, max 20)\n\n"+
+			"1. The official subject name (the full name including grade/form/class level)\n"+
+			"2. A list of topic/chapter names (one per line, max 20)\n\n"+
 			"Subject ID: %s\nSyllabus ID: %s\n\nDocument:\n%s\n\n"+
 			"Respond in this exact format:\n"+
-			"NAME: <subject name>\nTOPICS:\n- <topic1>\n- <topic2>",
+			"NAME: <subject name with grade, e.g. Matematik Tingkatan 4>\nTOPICS:\n- <topic1>\n- <topic2>",
 		req.SubjectID, req.SyllabusID, req.SourceText,
 	)
 
@@ -262,14 +295,31 @@ func buildSyllabusYAML(id, name, nameEn, countryID, description string, subjects
 }
 
 // buildSubjectYAML emits a subject.yaml stub following docs/id-conventions.md.
-// name is in the MOE official language; name_en is the English equivalent.
+// The subject ID is grade-less (e.g. "malaysia-kssm-matematik").
 func buildSubjectYAML(id, name, nameEn, syllabusID, countryID string) string {
+	lang := countryLanguage(countryID)
+	var sb strings.Builder
+	sb.WriteString("id: " + id + "\n")
+	sb.WriteString("name: \"" + name + "\"\n")
+	sb.WriteString("name_en: \"" + nameEn + "\"\n")
+	sb.WriteString("syllabus_id: " + syllabusID + "\n")
+	sb.WriteString("country_id: " + countryID + "\n")
+	sb.WriteString("language: " + lang + "\n")
+	sb.WriteString("provenance: ai-generated\n")
+	sb.WriteString("generated_at: \"" + time.Now().UTC().Format(time.RFC3339) + "\"\n")
+	return sb.String()
+}
+
+// buildSubjectGradeYAML emits a subject-grade.yaml stub following docs/id-conventions.md.
+// The subject grade ID includes the grade (e.g. "malaysia-kssm-matematik-tingkatan-3").
+func buildSubjectGradeYAML(id, name, nameEn, subjectID, syllabusID, countryID string) string {
 	lang := countryLanguage(countryID)
 	gradeID := gradeIDFromSubjectID(id)
 	var sb strings.Builder
 	sb.WriteString("id: " + id + "\n")
 	sb.WriteString("name: \"" + name + "\"\n")
 	sb.WriteString("name_en: \"" + nameEn + "\"\n")
+	sb.WriteString("subject_id: " + subjectID + "\n")
 	sb.WriteString("syllabus_id: " + syllabusID + "\n")
 	if gradeID != "" {
 		sb.WriteString("grade_id: " + gradeID + "\n")
@@ -283,13 +333,14 @@ func buildSubjectYAML(id, name, nameEn, syllabusID, countryID string) string {
 
 // buildTopicStubYAML emits a topic YAML stub following docs/id-conventions.md.
 // name is in the MOE official language; name_en is the English equivalent.
-func buildTopicStubYAML(id, name, nameEn, subjectID, syllabusID, countryID string) string {
+func buildTopicStubYAML(id, name, nameEn, subjectGradeID, subjectID, syllabusID, countryID string) string {
 	lang := countryLanguage(countryID)
 	var sb strings.Builder
 	sb.WriteString("id: " + id + "\n")
 	sb.WriteString("# official_ref: \"\"  # fill in if the source document assigns a chapter/section code\n")
 	sb.WriteString("name: \"" + name + "\"\n")
 	sb.WriteString("name_en: \"" + nameEn + "\"\n")
+	sb.WriteString("subject_grade_id: " + subjectGradeID + "\n")
 	sb.WriteString("subject_id: " + subjectID + "\n")
 	sb.WriteString("syllabus_id: " + syllabusID + "\n")
 	sb.WriteString("country_id: " + countryID + "\n")
@@ -449,4 +500,116 @@ func toSlug(name string) string {
 		}
 	}
 	return strings.Trim(out.String(), "-")
+}
+
+// StripGradeFromName removes the grade/form/class portion from a subject name,
+// returning just the subject part. It handles known MOE grade words in multiple languages.
+//
+//	"Matematik Tingkatan 4"  → "Matematik"
+//	"Fisika Kelas 11"        → "Fisika"
+//	"Physics Class 12"       → "Physics"
+//	"Mathematics Form 3"     → "Mathematics"
+//	"Mathematics Year 10"    → "Mathematics"
+//	"Mathematics"            → "Mathematics" (no grade to strip)
+func StripGradeFromName(name string) string {
+	// Known grade label words (case-insensitive match).
+	gradeLabels := []string{
+		"tingkatan", "kelas", "class", "form", "year", "grade",
+		"saff", // Arabic grade label (صف)
+		"chugaku", "koko", // Japanese (中学, 高校)
+	}
+	words := strings.Fields(name)
+	for i, w := range words {
+		lower := strings.ToLower(w)
+		for _, label := range gradeLabels {
+			if lower == label && i+1 < len(words) {
+				// Found a grade label — return everything before it, trimmed.
+				result := strings.TrimSpace(strings.Join(words[:i], " "))
+				if result != "" {
+					return result
+				}
+			}
+		}
+	}
+	return name
+}
+
+// translateToEnglish uses the AI provider to translate a name to English.
+// Returns the original name unchanged if translation fails or no AI is available.
+func (s *Scaffolder) translateToEnglish(ctx context.Context, name, lang string) string {
+	if s.aiProvider == nil || lang == "en" || name == "" {
+		return name
+	}
+
+	prompt := fmt.Sprintf(
+		"Translate the following curriculum subject/topic name from %s to English.\n"+
+			"Return ONLY the English translation, nothing else.\n\n%s",
+		lang, name,
+	)
+
+	resp, err := s.aiProvider.Complete(ctx, ai.CompletionRequest{
+		Messages: []ai.Message{{Role: "user", Content: prompt}},
+	})
+	if err != nil || strings.TrimSpace(resp.Content) == "" {
+		return name
+	}
+	return strings.TrimSpace(resp.Content)
+}
+
+// translateTopicNames uses the AI provider to batch-translate topic names to English.
+// Returns the original names unchanged if translation fails.
+func (s *Scaffolder) translateTopicNames(ctx context.Context, topics []string, lang string) []string {
+	if s.aiProvider == nil || lang == "en" || len(topics) == 0 {
+		return topics
+	}
+
+	var sb strings.Builder
+	for i, t := range topics {
+		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, t))
+	}
+
+	prompt := fmt.Sprintf(
+		"Translate the following curriculum topic names from %s to English.\n"+
+			"Return ONLY the translations, one per line, numbered to match:\n\n%s",
+		lang, sb.String(),
+	)
+
+	resp, err := s.aiProvider.Complete(ctx, ai.CompletionRequest{
+		Messages: []ai.Message{{Role: "user", Content: prompt}},
+	})
+	if err != nil || strings.TrimSpace(resp.Content) == "" {
+		return topics
+	}
+
+	return parseTranslatedTopics(resp.Content, topics)
+}
+
+// parseTranslatedTopics extracts translated names from AI response, falling back to originals.
+func parseTranslatedTopics(response string, originals []string) []string {
+	result := make([]string, len(originals))
+	copy(result, originals)
+
+	lines := strings.Split(strings.TrimSpace(response), "\n")
+	idx := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Strip leading "1. " or "1) " numbering
+		for i, ch := range line {
+			if ch == '.' || ch == ')' {
+				line = strings.TrimSpace(line[i+1:])
+				break
+			}
+			if ch < '0' || ch > '9' {
+				break
+			}
+		}
+		if idx < len(result) && line != "" {
+			result[idx] = line
+			idx++
+		}
+	}
+	return result
 }

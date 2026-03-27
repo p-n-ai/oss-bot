@@ -78,8 +78,8 @@ func TestImportCmdFlags(t *testing.T) {
 	if cmd.Flags().Lookup("syllabus") == nil {
 		t.Error("import command missing --syllabus flag")
 	}
-	if cmd.Flags().Lookup("subject") == nil {
-		t.Error("import command missing --subject flag")
+	if cmd.Flags().Lookup("subject-grade") == nil {
+		t.Error("import command missing --subject-grade flag")
 	}
 	if cmd.Flags().Lookup("workers") == nil {
 		t.Error("import command missing --workers flag")
@@ -175,16 +175,16 @@ func TestImportSlug(t *testing.T) {
 
 func TestFindSubjectTopicsDir(t *testing.T) {
 	// Create a temp directory tree mimicking a scaffolded OSS repo:
-	// curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik-tingkatan-4/topics/
+	// curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-4/topics/
 	root := t.TempDir()
 	topicsDir := filepath.Join(root, "curricula", "malaysia", "malaysia-kssm",
-		"malaysia-kssm-matematik-tingkatan-4", "topics")
+		"malaysia-kssm-matematik", "malaysia-kssm-matematik-tingkatan-4", "topics")
 	if err := os.MkdirAll(topicsDir, 0755); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
-	t.Run("finds existing subject topics dir", func(t *testing.T) {
-		got, err := findSubjectTopicsDir(root, "malaysia-kssm-matematik-tingkatan-4", "malaysia-kssm")
+	t.Run("finds existing subject_grade topics dir", func(t *testing.T) {
+		got, err := findSubjectTopicsDir(root, "malaysia-kssm-matematik-tingkatan-4", "malaysia-kssm-matematik", "malaysia-kssm")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -194,19 +194,18 @@ func TestFindSubjectTopicsDir(t *testing.T) {
 	})
 
 	t.Run("returns error when subject not found", func(t *testing.T) {
-		_, err := findSubjectTopicsDir(root, "nonexistent-subject", "malaysia-kssm")
+		_, err := findSubjectTopicsDir(root, "nonexistent-subject", "", "malaysia-kssm")
 		if err == nil {
 			t.Error("expected error for missing subject, got nil")
 		}
 	})
 
-	t.Run("falls back to syllabusID when subjectID is empty", func(t *testing.T) {
+	t.Run("falls back to syllabusID when subjectGradeID and subjectID are empty", func(t *testing.T) {
 		syllabusDir := filepath.Join(root, "curricula", "malaysia", "malaysia-kssm", "topics")
 		if err := os.MkdirAll(syllabusDir, 0755); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		// search by syllabusID when subjectID is empty
-		got, err := findSubjectTopicsDir(root, "", "malaysia-kssm")
+		got, err := findSubjectTopicsDir(root, "", "", "malaysia-kssm")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -214,6 +213,24 @@ func TestFindSubjectTopicsDir(t *testing.T) {
 			t.Errorf("got %q, want %q", got, syllabusDir)
 		}
 	})
+}
+
+func TestSubjectBaseID(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"malaysia-kssm-matematik-tingkatan-3", "malaysia-kssm-matematik"},
+		{"india-cbse-physics-class-12", "india-cbse-physics"},
+		{"uk-cambridge-igcse-mathematics-0580", "uk-cambridge-igcse-mathematics-0580"}, // no grade detected (4-digit code)
+		{"", ""},
+	}
+	for _, c := range tests {
+		got := subjectBaseID(c.input)
+		if got != c.want {
+			t.Errorf("subjectBaseID(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
 }
 
 func TestExtractDSKPTopics(t *testing.T) {

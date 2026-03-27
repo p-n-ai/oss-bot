@@ -351,12 +351,22 @@ func scaffoldSyllabusCmd() *cobra.Command {
 func scaffoldSubjectCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "subject",
-		Short: "Create a new subject directory within an existing syllabus",
-		RunE:  runScaffoldSubject,
+		Short: "Create a new subject + subject_grade directory within an existing syllabus",
+		Long: `Scaffold a subject directory with the new three-level structure:
+
+  {subject_id}/subject.yaml
+  {subject_id}/{subject_grade_id}/subject-grade.yaml
+  {subject_id}/{subject_grade_id}/topics/
+
+Examples:
+  oss scaffold subject --syllabus malaysia-kssm --id malaysia-kssm-matematik --grade-id malaysia-kssm-matematik-tingkatan-3 --country malaysia
+  oss scaffold subject --syllabus india-jee --id india-jee-mathematics --grade-id india-jee-mathematics-class-11 --country india`,
+		RunE: runScaffoldSubject,
 	}
 	cmd.Flags().String("syllabus", "", "Syllabus ID (required)")
-	cmd.Flags().String("id", "", "Subject ID (required, e.g. mathematics)")
-	cmd.Flags().String("country", "", "Country code (e.g. india)")
+	cmd.Flags().String("id", "", "Subject ID — grade-less (required, e.g. malaysia-kssm-matematik)")
+	cmd.Flags().String("grade-id", "", "Subject grade ID — with grade (e.g. malaysia-kssm-matematik-tingkatan-3)")
+	cmd.Flags().String("country", "", "Country code (e.g. malaysia)")
 	cmd.Flags().String("from-file", "", "Path to subject document")
 	cmd.Flags().String("from-url", "", "URL of subject specification page")
 	cmd.Flags().String("from-text", "", "Subject description text")
@@ -407,6 +417,7 @@ func runScaffoldSyllabus(cmd *cobra.Command, _ []string) error {
 func runScaffoldSubject(cmd *cobra.Command, _ []string) error {
 	syllabusID, _ := cmd.Flags().GetString("syllabus")
 	subjectID, _ := cmd.Flags().GetString("id")
+	subjectGradeID, _ := cmd.Flags().GetString("grade-id")
 	country, _ := cmd.Flags().GetString("country")
 	fromFile, _ := cmd.Flags().GetString("from-file")
 	fromText, _ := cmd.Flags().GetString("from-text")
@@ -424,11 +435,12 @@ func runScaffoldSubject(cmd *cobra.Command, _ []string) error {
 
 	s := generator.NewScaffolder(provider)
 	result, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{
-		SyllabusID: syllabusID,
-		SubjectID:  subjectID,
-		Country:    country,
-		SourceText: sourceText,
-		OutputDir:  outputDir,
+		SyllabusID:     syllabusID,
+		SubjectID:      subjectID,
+		SubjectGradeID: subjectGradeID,
+		Country:        country,
+		SourceText:     sourceText,
+		OutputDir:      outputDir,
 	})
 	if err != nil {
 		return fmt.Errorf("scaffolding subject: %w", err)
@@ -454,12 +466,12 @@ YAML files in the OSS repo. Uses parallel AI workers to process each
 chapter/section concurrently.
 
 Example:
-  oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf --syllabus malaysia-kssm --subject malaysia-kssm-matematik-tingkatan-4`,
+  oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4`,
 		RunE: runImport,
 	}
 	cmd.Flags().String("pdf", "", "Path to PDF file (required)")
 	cmd.Flags().String("syllabus", "", "Target syllabus ID (required, e.g. malaysia-kssm)")
-	cmd.Flags().String("subject", "", "Target subject ID (e.g. malaysia-kssm-matematik-tingkatan-4)")
+	cmd.Flags().String("subject-grade", "", "Target subject grade ID (e.g. malaysia-kssm-matematik-tingkatan-4)")
 	cmd.Flags().Int("workers", 3, "Number of parallel AI workers (overrides OSS_WORKER_COUNT)")
 	cmd.Flags().Int("chunk-size", 2000, "Max tokens per chunk (lower = more files, higher = less context loss)")
 	cmd.Flags().Bool("pr", false, "Create a GitHub PR instead of writing to filesystem")
@@ -472,7 +484,7 @@ Example:
 func runImport(cmd *cobra.Command, _ []string) error {
 	pdfPath, _ := cmd.Flags().GetString("pdf")
 	syllabusID, _ := cmd.Flags().GetString("syllabus")
-	subjectID, _ := cmd.Flags().GetString("subject")
+	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
 	workers, _ := cmd.Flags().GetInt("workers")
 	chunkSize, _ := cmd.Flags().GetInt("chunk-size")
 	createPR, _ := cmd.Flags().GetBool("pr")
@@ -525,7 +537,7 @@ func runImport(cmd *cobra.Command, _ []string) error {
 
 	// 3. Resolve output directory — search for existing subject topics dir
 	// created by scaffold, fall back to a flat output dir.
-	topicsDir, err := findSubjectTopicsDir(repoPath, subjectID, syllabusID)
+	topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectBaseID(subjectGradeID), syllabusID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 		topicsDir = filepath.Join(repoPath, "import-output", syllabusID)
@@ -541,21 +553,21 @@ func runImport(cmd *cobra.Command, _ []string) error {
 		mode = pipeline.ModeCreatePR
 	}
 	result, err := pipeline.ExecuteBulk(cmd.Context(), pipeline.BulkRequest{
-		Chunks:     chunks,
-		SyllabusID: syllabusID,
-		SubjectID:  subjectID,
-		Mode:       mode,
-		Source:     "cli",
-		Workers:    workers,
-		Reporter:   pipeline.NewCLIReporter(),
-		Provider:   reasoningProvider,
+		Chunks:         chunks,
+		SyllabusID:     syllabusID,
+		SubjectGradeID: subjectGradeID,
+		Mode:           mode,
+		Source:         "cli",
+		Workers:        workers,
+		Reporter:       pipeline.NewCLIReporter(),
+		Provider:       reasoningProvider,
 	})
 	if err != nil {
 		return fmt.Errorf("bulk import: %w", err)
 	}
 
 	// 5. Write each topic output to a YAML file.
-	// Use the canonical OSS topic ID (e.g. MT4-01) when subjectID is known;
+	// Use the canonical OSS topic ID (e.g. MT4-01) when subjectGradeID is known;
 	// fall back to the heading slug otherwise.
 	// If the file already exists, AI-merge the existing and new content into a
 	// single coherent YAML before writing (no duplicate documents in the file).
@@ -566,8 +578,8 @@ func runImport(cmd *cobra.Command, _ []string) error {
 			continue
 		}
 		var fileID string
-		if subjectID != "" {
-			fileID = topicFileID(subjectID, tr.Heading, tr.ChunkIndex)
+		if subjectGradeID != "" {
+			fileID = topicFileID(subjectGradeID, tr.Heading, tr.ChunkIndex)
 		} else {
 			slug := importSlug(tr.Heading)
 			if slug == "" {
@@ -627,15 +639,19 @@ func runImport(cmd *cobra.Command, _ []string) error {
 }
 
 // findSubjectTopicsDir searches under repoPath for an existing topics directory
-// whose parent directory name matches subjectID or syllabusID. This locates
-// directories created by "oss scaffold subject" without needing the country.
-// Falls back to a path derived from syllabusID if no match is found.
-func findSubjectTopicsDir(repoPath, subjectID, syllabusID string) (string, error) {
-	if subjectID == "" && syllabusID == "" {
-		return "", fmt.Errorf("no subject or syllabus ID provided")
+// following the new directory structure: {subject_id}/{subject_grade_id}/topics/.
+// It searches for a directory named subjectGradeID (or subjectID, or syllabusID
+// as fallbacks) and returns the topics/ path within it.
+func findSubjectTopicsDir(repoPath, subjectGradeID, subjectID, syllabusID string) (string, error) {
+	if subjectGradeID == "" && subjectID == "" && syllabusID == "" {
+		return "", fmt.Errorf("no subject grade, subject, or syllabus ID provided")
 	}
 
-	searchID := subjectID
+	// Search in order: subjectGradeID > subjectID > syllabusID
+	searchID := subjectGradeID
+	if searchID == "" {
+		searchID = subjectID
+	}
 	if searchID == "" {
 		searchID = syllabusID
 	}
@@ -656,6 +672,31 @@ func findSubjectTopicsDir(repoPath, subjectID, syllabusID string) (string, error
 		return found, nil
 	}
 	return "", fmt.Errorf("directory %q not found under %s — run 'oss scaffold subject' first", searchID, repoPath)
+}
+
+// subjectBaseID strips the grade portion from a subject_grade_id to get the
+// grade-less subject_id. e.g. "malaysia-kssm-matematik-tingkatan-3" → "malaysia-kssm-matematik".
+// If no grade portion is detected, returns the input unchanged.
+func subjectBaseID(subjectGradeID string) string {
+	if subjectGradeID == "" {
+		return ""
+	}
+	parts := strings.Split(subjectGradeID, "-")
+	for i := len(parts) - 1; i >= 1; i-- {
+		p := parts[i]
+		allDigits := len(p) > 0 && len(p) <= 2
+		for _, ch := range p {
+			if ch < '0' || ch > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			// The word before the number is the grade label; strip both.
+			return strings.Join(parts[:i-1], "-")
+		}
+	}
+	return subjectGradeID
 }
 
 // dskpTopic holds a single topic extracted from a DSKP (Dokumen Standard

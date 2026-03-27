@@ -51,7 +51,7 @@ func setupTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	topicsDir := filepath.Join(dir, "curricula", "test", "topics", "algebra")
+	topicsDir := filepath.Join(dir, "curricula", "test", "test-algebra", "test-algebra-1", "topics")
 	os.MkdirAll(topicsDir, 0o755)
 
 	// Topic F1-01 (no prerequisites)

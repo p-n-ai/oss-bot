@@ -87,7 +87,7 @@ go version && node --version && golangci-lint --version && docker --version
 | `name` + `name_en` always | Every generated YAML must have `name` (MOE language) **and** `name_en` (English) |
 | `text` + `text_en` in LOs | Every learning objective must have `text` (MOE language) **and** `text_en` (English) |
 | `official_ref` when present | Capture the board's own chapter/section code verbatim; omit field if the source has none |
-| Folder name = entity ID | `curricula/{country_id}/{syllabus_id}/{subject_id}/` — folder names equal the full entity ID, never an abbreviation |
+| Folder name = entity ID | `curricula/{country_id}/{syllabus_id}/{subject_id}/{subject_grade_id}/` — folder names equal the full entity ID, never an abbreviation |
 | `country_id` not `country` | YAML field is `country_id`, matching the ID convention; use the English common name slug (e.g. `malaysia`) |
 | `grade_id` in subject YAML | Include `grade_id` extracted from the subject ID slug (e.g. `tingkatan-3`, `class-12`) |
 | `language` BCP 47 | Every entity YAML includes `language:` as a BCP 47 code (`ms`, `id`, `en`, `ja`, `ar`) |
@@ -106,10 +106,21 @@ subjects: []
 provenance: ai-generated
 generated_at: "..."
 
-# subject.yaml
+# subject.yaml (lives in {subject_id}/ folder)
+id: malaysia-kssm-matematik
+name: "Matematik"               # MOE language
+name_en: "Mathematics"          # English
+syllabus_id: malaysia-kssm
+country_id: malaysia
+language: ms
+provenance: ai-generated
+generated_at: "..."
+
+# subject-grade.yaml (lives in {subject_id}/{subject_grade_id}/ folder)
 id: malaysia-kssm-matematik-tingkatan-3
 name: "Matematik Tingkatan 3"    # MOE language
 name_en: "Mathematics Form 3"    # English
+subject_id: malaysia-kssm-matematik
 syllabus_id: malaysia-kssm
 grade_id: tingkatan-3
 country_id: malaysia
@@ -117,12 +128,13 @@ language: ms
 provenance: ai-generated
 generated_at: "..."
 
-# topics/{TOPIC_ID}.yaml
+# topics/{TOPIC_ID}.yaml (lives in {subject_id}/{subject_grade_id}/topics/ folder)
 id: MT3-09
 official_ref: "Bab 9"           # board's code; omit if absent
 name: "Garis Lurus"             # MOE language
 name_en: "Straight Lines"       # English
-subject_id: malaysia-kssm-matematik-tingkatan-3
+subject_grade_id: malaysia-kssm-matematik-tingkatan-3
+subject_id: malaysia-kssm-matematik
 syllabus_id: malaysia-kssm
 country_id: malaysia
 language: ms
@@ -143,7 +155,7 @@ generated_at: "..."
 
 - [ ] All generated YAML has `name` (MOE language) **and** `name_en`
 - [ ] Topic IDs follow `{PREFIX}{grade_num}-{NN}` with English-derived prefix
-- [ ] Subject folder name = full `subject_id` (not just subject slug)
+- [ ] Subject folder name = full `subject_id` (grade-less); subject grade folder = full `subject_grade_id`
 - [ ] YAML includes `country_id`, `grade_id` (subjects/topics), `language`
 - [ ] Prompt templates use `{{syllabus_id}}` — no hardcoded curriculum names
 - [ ] `official_ref` extracted from source docs when a formal code is present
