@@ -353,7 +353,8 @@ tier: core                          # core | extension
 
 learning_objectives:
   - id: FILL_SP_CODE                # STANDARD PEMBELAJARAN code, e.g. 1.1.1
-    text: "FILL_TEXT_EN"            # objective text in English
+    text: "FILL_TEXT"               # objective text in the document language (%s)
+    text_en: "FILL_TEXT_EN"         # English translation of the objective
     bloom: FILL_BLOOM               # remember | understand | apply | analyze | evaluate | create
   # repeat for ALL objectives in the document
 
@@ -378,11 +379,14 @@ provenance: ai-assisted
 RULES:
 - Output ONLY valid YAML — no markdown fences, no explanatory text before or after
 - Extract ALL learning objectives from the STANDARD PEMBELAJARAN section
-- name_en MUST be the English translation of the name field
-- All learning_objectives text fields MUST be in English
+- name MUST be in the document language (%s), name_en MUST be the English translation
+- learning_objectives text MUST be in the document language (%s), text_en MUST be the English translation
 - bloom levels: remember | understand | apply | analyze | evaluate | create`,
 		chunk.Heading, chunk.Content, existingSection,
-		topicID, subjectID, req.SyllabusID, countryID, language, topicID,
+		topicID, subjectID, req.SyllabusID, countryID, language,
+		language,
+		topicID,
+		language, language,
 	)
 
 	resp, err := req.Provider.Complete(ctx, ai.CompletionRequest{
