@@ -80,9 +80,10 @@ func (s *Scaffolder) ScaffoldSyllabus(ctx context.Context, req ScaffoldRequest) 
 	syllabusPath := filepath.Join("curricula", country, req.SyllabusID, "syllabus.yaml")
 	files := map[string]string{syllabusPath: syllabusYAML}
 
-	// Generate subject directory stubs
+	// Generate subject directory stubs.
+	// Subject ID = {syllabus_id}-{subject_slug} so the folder name equals the full subject ID.
 	for _, subject := range subjects {
-		subjectID := toSlug(subject)
+		subjectID := req.SyllabusID + "-" + toSlug(subject)
 		subjectPath := filepath.Join("curricula", country, req.SyllabusID, subjectID, "subject.yaml")
 		files[subjectPath] = buildSubjectYAML(subjectID, subject, req.SyllabusID)
 	}
@@ -119,9 +120,11 @@ func (s *Scaffolder) ScaffoldSubject(ctx context.Context, req ScaffoldRequest) (
 	subjectPath := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "subject.yaml")
 	files[subjectPath] = buildSubjectYAML(req.SubjectID, name, req.SyllabusID)
 
-	// topic stubs
+	// topic stubs — topic ID uses the English-derived prefix + grade number from subject name
+	prefix := subjectPrefix(name)
+	gradeNum := gradeNumberFromSubjectID(req.SubjectID)
 	for i, topic := range topics {
-		topicID := fmt.Sprintf("%s-%02d", strings.ToUpper(req.SubjectID[:min(2, len(req.SubjectID))]), i+1)
+		topicID := fmt.Sprintf("%s%s-%02d", prefix, gradeNum, i+1)
 		topicPath := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "topics", topicID+".yaml")
 		files[topicPath] = buildTopicStubYAML(topicID, topic, req.SubjectID, req.SyllabusID)
 	}
@@ -275,6 +278,89 @@ func buildTopicStubYAML(id, name, subjectID, syllabusID string) string {
 	sb.WriteString("provenance: ai-generated\n")
 	sb.WriteString("generated_at: \"" + time.Now().UTC().Format(time.RFC3339) + "\"\n")
 	return sb.String()
+}
+
+// subjectPrefix maps a subject name (any MOE language) to an English-derived
+// 2-3 uppercase letter topic prefix per docs/id-conventions.md.
+func subjectPrefix(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case containsAny(lower, "matematik", "matematika", "mathematics", "math"):
+		return "MT"
+	case containsAny(lower, "sains", "ilmu pengetahuan alam", "science"):
+		return "SC"
+	case containsAny(lower, "fizik", "fisika", "physics"):
+		return "PHY"
+	case containsAny(lower, "kimia", "chemistry"):
+		return "CHM"
+	case containsAny(lower, "biologi", "biology"):
+		return "BIO"
+	case containsAny(lower, "sejarah", "history"):
+		return "HIS"
+	case containsAny(lower, "geografi", "geography"):
+		return "GEO"
+	case containsAny(lower, "bahasa melayu", "bahasa indonesia", "indonesian"):
+		return "BM"
+	case containsAny(lower, "english"):
+		return "ENG"
+	case containsAny(lower, "bahasa arab", "arabic"):
+		return "AR"
+	default:
+		// Derive 2-3 uppercase consonants from the English name.
+		consonants := "bcdfghjklmnpqrstvwxyz"
+		var out strings.Builder
+		for _, ch := range lower {
+			if strings.ContainsRune(consonants, ch) {
+				out.WriteRune(ch - 32) // to uppercase
+				if out.Len() == 3 {
+					break
+				}
+			}
+		}
+		if out.Len() == 0 {
+			return strings.ToUpper(lower[:min(2, len(lower))])
+		}
+		return out.String()
+	}
+}
+
+func containsAny(s string, keywords ...string) bool {
+	for _, kw := range keywords {
+		if strings.Contains(s, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// gradeNumberFromSubjectID extracts the trailing grade number from a subject ID slug.
+// e.g. "malaysia-kssm-matematik-tingkatan-3" → "3"
+//
+//	"india-cbse-physics-class-12" → "12"
+//	"uk-cambridge-igcse-mathematics-0580" → "" (no pure grade number)
+func gradeNumberFromSubjectID(subjectID string) string {
+	parts := strings.Split(subjectID, "-")
+	for i := len(parts) - 1; i >= 0; i-- {
+		p := parts[i]
+		allDigits := len(p) > 0
+		for _, ch := range p {
+			if ch < '0' || ch > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits && len(p) <= 2 {
+			return p
+		}
+	}
+	return ""
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // toSlug converts a name to a URL-safe slug.

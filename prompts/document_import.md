@@ -24,7 +24,11 @@ Extract the curriculum structure from the source text and output as YAML:
 1. Identify subjects/strands
 2. Identify individual topics within each subject
 3. For each topic, determine:
-   - A unique ID (format: XX-NN)
+   - A unique ID following the OSS ID conventions (see `docs/id-conventions.md`):
+     format `{PREFIX}{grade_num}-{NN}` e.g. `MT1-01`, `PHY12-03`.
+     Prefix is derived from the English subject name (language-neutral).
+   - `official_ref`: the chapter/section/topic code as printed in the source document (e.g. `"Bab 9"`, `"C2.5"`, `"Chapter 12"`). Omit if no formal code exists.
+   - `name` in the MOE's official language, and `name_en` in English
    - Name in source language
    - Learning objectives (with Bloom's levels inferred from verbs)
    - Difficulty (beginner/intermediate/advanced)
@@ -48,11 +52,14 @@ subjects:
     name: "Subject Name"
     topics:
       - id: XX-01
+        official_ref: "Chapter 1"   # board's code from source doc; omit if absent
         name: "Topic Name"
+        name_en: "Topic Name in English"
         difficulty: beginner
         learning_objectives:
           - id: LO1
             text: "..."
+            text_en: "... (English)"
             bloom: understand
         prerequisites: []
 ```

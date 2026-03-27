@@ -252,6 +252,22 @@ All config uses `OSS_` prefix. Key variables:
 
 *Not needed for Ollama.
 
+## ID Conventions
+
+All entity IDs follow **[`docs/id-conventions.md`](docs/id-conventions.md)**. Core principle:
+
+> **IDs use the official MOE language of the country. English is always added to content fields (`name_en`, `text_en`) for interoperability.**
+
+| Entity | Format | Example |
+|--------|--------|---------|
+| Country | `{english-name}` slug | `malaysia`, `india` |
+| Syllabus | `{country}-{board}` | `malaysia-kssm` |
+| Grade | `{grade-name}` in MOE language | `tingkatan-1`, `class-10` |
+| Subject | `{syllabus}-{subject}-{grade}` in MOE language | `malaysia-kssm-matematik-tingkatan-1` |
+| Topic | `{PREFIX}{grade_num}-{NN}` (prefix from English name) | `MT1-01`, `MT3-09`, `PHY12-03` |
+
+Every generated YAML must include both `name` (MOE language) and `name_en` (English).
+
 ## Related Repositories
 
 | Repository | Relationship |

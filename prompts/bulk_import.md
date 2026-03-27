@@ -15,12 +15,16 @@ You are extracting curriculum structure from a large educational document.
 ## Instructions
 
 Extract all curriculum topics from this chunk. For each topic:
-1. Assign a unique ID following the pattern used in {{syllabus_id}}
-2. Extract the topic name in the source language
-3. Identify learning objectives with Bloom's taxonomy levels
-4. Determine difficulty (beginner/intermediate/advanced)
-5. Identify prerequisites (referencing topic IDs from this or previous chunks)
-6. Extract any teaching notes, examples, or assessment items present
+1. Assign a unique ID: `{PREFIX}{grade_num}-{NN}` (e.g. `MT3-01`). Prefix is always from
+   the English subject name — language-neutral: MT=Mathematics, SC=Science, PHY=Physics,
+   CHM=Chemistry, BIO=Biology, HIS=History, GEO=Geography, BM=Malay/Indonesian, ENG=English.
+2. Set `official_ref` to the chapter/section/topic code printed in the source document (e.g. `"Bab 9"`, `"C2.5"`, `"Chapter 12"`). Omit if no formal code is present.
+3. Set `name` in the MOE's official language and `name_en` in English.
+4. Extract the topic name in the source language
+5. Identify learning objectives with Bloom's taxonomy levels; include `text_en` (English) alongside each `text`.
+6. Determine difficulty (beginner/intermediate/advanced)
+7. Identify prerequisites (referencing topic IDs from this or previous chunks)
+8. Extract any teaching notes, examples, or assessment items present
 
 Maintain consistency with topics extracted from previous chunks.
 
@@ -39,12 +43,15 @@ Infer Bloom's levels from verbs in the objectives:
 ```yaml
 topics:
   - id: XX-NN
-    name: "Topic Name"
+    official_ref: "Chapter N"   # board's code from source doc; omit if absent
+    name: "Topic Name"          # MOE official language
+    name_en: "Topic Name"       # English
     syllabus_id: {{syllabus_id}}
     difficulty: beginner
     learning_objectives:
       - id: LO1
         text: "..."
+        text_en: "... (English)"
         bloom: understand
     prerequisites: []
     teaching_notes: "..." # if present in source
