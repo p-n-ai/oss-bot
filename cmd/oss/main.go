@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/p-n-ai/oss-bot/internal/ai"
 	"github.com/p-n-ai/oss-bot/internal/generator"
 	"github.com/p-n-ai/oss-bot/internal/output"
+	"github.com/p-n-ai/oss-bot/internal/parser"
 	"github.com/p-n-ai/oss-bot/internal/pipeline"
 	"github.com/p-n-ai/oss-bot/internal/validator"
 	"github.com/spf13/cobra"
@@ -32,6 +34,7 @@ generate AI-powered teaching content, import from PDFs, and translate topics.`,
 	rootCmd.AddCommand(qualityCmd())
 	rootCmd.AddCommand(translateCmd())
 	rootCmd.AddCommand(scaffoldCmd())
+	rootCmd.AddCommand(importCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -436,6 +439,92 @@ func runScaffoldSubject(cmd *cobra.Command, _ []string) error {
 	fmt.Println(result.Summary)
 	for path := range result.Files {
 		fmt.Printf("  created: %s\n", filepath.Join(outputDir, path))
+	}
+	return nil
+}
+
+func importCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "import",
+		Short: "Import curriculum content from a PDF into the OSS repo",
+		Long: `Extract curriculum topics from a PDF document and generate structured
+YAML files in the OSS repo. Uses parallel AI workers to process each
+chapter/section concurrently.
+
+Example:
+  oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf --syllabus malaysia-kssm --subject malaysia-kssm-matematik-tingkatan-4`,
+		RunE: runImport,
+	}
+	cmd.Flags().String("pdf", "", "Path to PDF file (required)")
+	cmd.Flags().String("syllabus", "", "Target syllabus ID (required, e.g. malaysia-kssm)")
+	cmd.Flags().String("subject", "", "Target subject ID (e.g. malaysia-kssm-matematik-tingkatan-4)")
+	cmd.Flags().Int("workers", 3, "Number of parallel AI workers (overrides OSS_WORKER_COUNT)")
+	cmd.Flags().Bool("pr", false, "Create a GitHub PR instead of writing to filesystem")
+	cmd.MarkFlagRequired("pdf")
+	cmd.MarkFlagRequired("syllabus")
+	return cmd
+}
+
+func runImport(cmd *cobra.Command, _ []string) error {
+	pdfPath, _ := cmd.Flags().GetString("pdf")
+	syllabusID, _ := cmd.Flags().GetString("syllabus")
+	workers, _ := cmd.Flags().GetInt("workers")
+	createPR, _ := cmd.Flags().GetBool("pr")
+
+	repoPath := os.Getenv("OSS_REPO_PATH")
+	if repoPath == "" {
+		repoPath = "."
+	}
+
+	provider, err := createAIProvider()
+	if err != nil {
+		return err
+	}
+
+	// 1. Extract text from PDF
+	fmt.Printf("Extracting text from %s...\n", pdfPath)
+	text, err := parser.ExtractPDFText(pdfPath)
+	if err != nil {
+		return fmt.Errorf("extracting PDF: %w", err)
+	}
+	fmt.Printf("Extracted %d characters\n", len(text))
+
+	// 2. Chunk the document at heading/chapter boundaries.
+	// Include Malay chapter markers ("Bab") alongside standard Markdown headings.
+	chunks := parser.ChunkDocument(text, parser.ChunkOptions{
+		SplitOn: []string{"# ", "## ", "### ", "Chapter ", "Bab ", "BAB "},
+	})
+	fmt.Printf("Split into %d chunks\n", len(chunks))
+
+	// 3. Determine output mode
+	mode := pipeline.ModeWriteFS
+	if createPR {
+		mode = pipeline.ModeCreatePR
+	}
+
+	// 4. Run bulk import with progress reporting
+	result, err := pipeline.ExecuteBulk(cmd.Context(), pipeline.BulkRequest{
+		Chunks:     chunks,
+		SyllabusID: syllabusID,
+		Mode:       mode,
+		Source:     "cli",
+		Workers:    workers,
+		Reporter:   pipeline.NewCLIReporter(),
+		Provider:   provider,
+	})
+	if err != nil {
+		return fmt.Errorf("bulk import: %w", err)
+	}
+
+	// 5. Summary
+	fmt.Printf("\nProcessed %d/%d chunks in %s\n",
+		result.ProcessedChunks, len(chunks), result.Duration.Round(time.Second))
+
+	if len(result.Errors) > 0 {
+		fmt.Fprintf(os.Stderr, "%d chunks failed:\n", len(result.Errors))
+		for _, e := range result.Errors {
+			fmt.Fprintf(os.Stderr, "  ⚠ %s\n", e)
+		}
 	}
 	return nil
 }

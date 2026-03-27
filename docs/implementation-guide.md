@@ -5689,19 +5689,22 @@ go test ./...
 
 **Entry criteria:** Day 23 complete. Document import (hybrid) and scaffolder work.
 
+> **Gap fix (2026-03-27):** Added task `B-W5D24-7`. The bulk import pipeline (`internal/pipeline/bulk.go`) and PDF parser (`internal/parser/pdf.go`) were completed in tasks 24.5–24.6, but the `oss import` CLI subcommand was never added to `cmd/oss/main.go`. Task 24.7 closes this gap. It must be completed before using `oss import` with a DSKP or any other curriculum PDF.
+
 #### Tasks
 
 | # | Task ID | Task | Owner | Files Created |
 |---|---------|------|-------|---------------|
+| 24.10 | `B-W5D24-7` | Gap fix: `oss import` CLI command — wire `PDFParser` + `ChunkDocument` + `ExecuteBulk` into `cmd/oss/main.go` | 🤖 | Update `cmd/oss/main.go` |
 | 24.1 | `B-W5D24-1` | Contribution parser prompt template | 🤖 | `prompts/contribution_parser.md` |
 | 24.2 | `B-W5D24-2` | Natural language → structured data parser | 🤖 | `internal/parser/contribution.go` |
 | 24.3 | `B-W5D24-3` | `POST /api/feedback` endpoint | 🤖 | `internal/api/feedback.go` |
 | 24.4 | `B-W5D24-4` | Feedback → PR pipeline | 🤖 | Wiring |
 | 24.5 | `B-W5D24-5` | Large document chunker | 🤖 | `internal/parser/chunker.go` |
 | 24.6 | `B-W5D24-6` | Bulk import parallel worker pool | 🤖 | `internal/pipeline/bulk.go` |
-| 24.7 | `B-W5D24-7` | Progress reporter interface | 🤖 | `internal/pipeline/progress.go` |
-| 24.8 | `B-W5D24-8` | Reasoning model provider | 🤖 | `internal/ai/reasoning.go` |
-| 24.9 | `B-W5D24-9` | Extended Bloom verb sets for cross-subject support | 🤖 | Update `internal/validator/bloom.go` |
+| 24.7 | `B-W5D24-2` | Progress reporter interface | 🤖 | `internal/pipeline/progress.go` |
+| 24.8 | `B-W5D24-4` | Reasoning model provider | 🤖 | `internal/ai/reasoning.go` |
+| 24.9 | `B-W5D24-5` | Extended Bloom verb sets for cross-subject support | 🤖 | Update `internal/validator/bloom.go` |
 
 #### 24.1 — Contribution Parser Prompt
 
@@ -6040,6 +6043,177 @@ Update `internal/validator/bloom.go` to include Bloom's taxonomy verbs beyond ma
 
 The existing Bloom validator must continue to work for mathematics while accepting these extended verbs when validating topics from other subjects. Subject detection is based on the topic's `syllabus_id`.
 
+#### 24.10 — `oss import` CLI Command — Gap Fix (TDD)
+
+**File:** `cmd/oss/main.go`
+
+**Context:** `internal/pipeline/bulk.go`, `internal/parser/pdf.go`, and `internal/parser/chunker.go` are all complete. This task wires them together into a usable CLI command. The DSKP flow is: PDF → `ExtractPDFText` → `ChunkDocument` → `ExecuteBulk` → topic YAML files written to `$OSS_REPO_PATH`.
+
+**Test first** — add to `cmd/oss/main_test.go` (create if it doesn't exist):
+
+```go
+package main
+
+import (
+    "testing"
+)
+
+func TestImportCmdFlags(t *testing.T) {
+    cmd := importCmd()
+
+    // Required flags must be defined
+    if cmd.Flags().Lookup("pdf") == nil {
+        t.Error("import command missing --pdf flag")
+    }
+    if cmd.Flags().Lookup("syllabus") == nil {
+        t.Error("import command missing --syllabus flag")
+    }
+    if cmd.Flags().Lookup("subject") == nil {
+        t.Error("import command missing --subject flag")
+    }
+    if cmd.Flags().Lookup("workers") == nil {
+        t.Error("import command missing --workers flag")
+    }
+    if cmd.Flags().Lookup("pr") == nil {
+        t.Error("import command missing --pr flag")
+    }
+
+    // Defaults
+    workers, _ := cmd.Flags().GetInt("workers")
+    if workers != 3 {
+        t.Errorf("workers default = %d, want 3", workers)
+    }
+}
+```
+
+**Implementation** — add to `cmd/oss/main.go`:
+
+Add `rootCmd.AddCommand(importCmd())` in `main()`, then:
+
+```go
+func importCmd() *cobra.Command {
+    cmd := &cobra.Command{
+        Use:   "import",
+        Short: "Import curriculum content from a PDF into the OSS repo",
+        Long: `Extract curriculum topics from a PDF document and generate structured
+YAML files in the OSS repo. Uses parallel AI workers to process each
+chapter/section concurrently.
+
+Example:
+  oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf --syllabus malaysia-kssm --subject malaysia-kssm-matematik-tingkatan-4`,
+        RunE: runImport,
+    }
+    cmd.Flags().String("pdf", "", "Path to PDF file (required)")
+    cmd.Flags().String("syllabus", "", "Target syllabus ID (required, e.g. malaysia-kssm)")
+    cmd.Flags().String("subject", "", "Target subject ID (e.g. malaysia-kssm-matematik-tingkatan-4)")
+    cmd.Flags().Int("workers", 3, "Number of parallel AI workers (overrides OSS_WORKER_COUNT)")
+    cmd.Flags().Bool("pr", false, "Create a GitHub PR instead of writing to filesystem")
+    cmd.MarkFlagRequired("pdf")
+    cmd.MarkFlagRequired("syllabus")
+    return cmd
+}
+
+func runImport(cmd *cobra.Command, _ []string) error {
+    pdfPath, _ := cmd.Flags().GetString("pdf")
+    syllabusID, _ := cmd.Flags().GetString("syllabus")
+    workers, _ := cmd.Flags().GetInt("workers")
+    createPR, _ := cmd.Flags().GetBool("pr")
+
+    repoPath := os.Getenv("OSS_REPO_PATH")
+    if repoPath == "" {
+        repoPath = "."
+    }
+
+    provider, err := createAIProvider()
+    if err != nil {
+        return err
+    }
+
+    // 1. Extract text from PDF
+    fmt.Printf("Extracting text from %s...\n", pdfPath)
+    text, err := parser.ExtractPDFText(pdfPath)
+    if err != nil {
+        return fmt.Errorf("extracting PDF: %w", err)
+    }
+    fmt.Printf("Extracted %d characters\n", len(text))
+
+    // 2. Chunk the document at heading/chapter boundaries.
+    // Include Malay chapter markers ("Bab") alongside standard Markdown headings.
+    chunks := parser.ChunkDocument(text, parser.ChunkOptions{
+        SplitOn: []string{"# ", "## ", "### ", "Chapter ", "Bab ", "BAB "},
+    })
+    fmt.Printf("Split into %d chunks\n", len(chunks))
+
+    // 3. Determine output mode
+    mode := pipeline.ModeWriteFS
+    if createPR {
+        mode = pipeline.ModeCreatePR
+    }
+
+    // 4. Run bulk import with progress reporting
+    result, err := pipeline.ExecuteBulk(cmd.Context(), pipeline.BulkRequest{
+        Chunks:     chunks,
+        SyllabusID: syllabusID,
+        Mode:       mode,
+        Source:     "cli",
+        Workers:    workers,
+        Reporter:   pipeline.NewCLIReporter(),
+        Provider:   provider,
+    })
+    if err != nil {
+        return fmt.Errorf("bulk import: %w", err)
+    }
+
+    // 5. Summary
+    fmt.Printf("\nProcessed %d/%d chunks in %s\n",
+        result.ProcessedChunks, len(chunks), result.Duration.Round(time.Second))
+
+    if len(result.Errors) > 0 {
+        fmt.Fprintf(os.Stderr, "%d chunks failed:\n", len(result.Errors))
+        for _, e := range result.Errors {
+            fmt.Fprintf(os.Stderr, "  ⚠ %s\n", e)
+        }
+    }
+    return nil
+}
+```
+
+Add required imports: `"time"`, `"github.com/p-n-ai/oss-bot/internal/parser"` (already imported via scaffolder).
+
+**Validation command:**
+
+```bash
+go build ./cmd/oss && ./oss import --help
+go test ./cmd/oss/...
+```
+
+**Full DSKP import run (after build):**
+
+```bash
+# Set env (or source .env)
+export OSS_REPO_PATH=~/oss
+export OSS_AI_PROVIDER=openai
+export OSS_AI_API_KEY=sk-...
+
+go run ./cmd/oss import \
+  --pdf /path/to/DSKP-KSSM-Matematik-Tingkatan-4.pdf \
+  --syllabus malaysia-kssm \
+  --subject malaysia-kssm-matematik-tingkatan-4 \
+  --workers 3
+```
+
+Expected output:
+```
+Extracting text from DSKP-KSSM-Matematik-Tingkatan-4.pdf...
+Extracted 142000 characters
+Split into 12 chunks
+Starting bulk import: 12 chunks, 3 workers
+[1/12] Bab 1: Fungsi... done
+[2/12] Bab 2: Ungkapan Kuadratik... done
+...
+Processed 12/12 chunks in 47s
+```
+
 #### Day 24 Validation
 
 ```bash
@@ -6048,6 +6222,7 @@ go test ./...
 
 #### Day 24 Exit Criteria
 
+- [ ] `B-W5D24-7` gap fix: `oss import` command added to `cmd/oss/main.go` — `--pdf`, `--syllabus`, `--subject`, `--workers`, `--pr` flags; `go run ./cmd/oss import --help` works; `go test ./cmd/oss/...` passes
 - [ ] `prompts/contribution_parser.md` created (uses `{{syllabus_id}}` template variable, curriculum-agnostic)
 - [ ] `internal/parser/contribution.go` + tests — natural language → structured YAML
 - [ ] `internal/api/feedback.go` + tests — POST /api/feedback endpoint

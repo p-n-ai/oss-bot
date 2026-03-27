@@ -127,6 +127,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 > **Updated (2026-03-27):** Dedicated day for large document handling (100-page PDFs, textbooks, DSKP documents). This is the core scenario for bootstrapping a new country's curriculum.
 > **Scope decision (2026-03-27):** The implementation guide's Day 24 also includes a contribution parser (`internal/parser/contribution.go`) and feedback API (`internal/api/feedback.go`) not present in this updated timeline. These are **deferred** — they do not appear in the timeline tasks and are not required for the bulk import flow. They will be scheduled separately if needed.
+> **Gap fix (2026-03-27):** Added task `B-W5D24-7`. Task `B-W5D24-3` described `oss import --file textbook.pdf` as the target CLI command, but the `importCmd` was never added to `cmd/oss/main.go`. The internal pipeline (`bulk.go`, `pdf.go`, `chunker.go`) is complete — only the CLI entrypoint is missing.
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
@@ -136,6 +137,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W5D24-4` | `internal/ai/reasoning.go` — reasoning model provider via OpenRouter (single OpenAI-compatible API gateway routing to DeepSeek R1, Kimi K2.5, Qwen 3.5, o3-mini, etc.) for complex tasks: bulk import structure analysis, content merge decisions, cross-topic prerequisite mapping. Falls back to standard provider if unavailable. Config: `OSS_AI_REASONING_PROVIDER=openrouter`, `OSS_AI_REASONING_MODEL=deepseek/deepseek-r1`. | 🤖 | ✅ | OpenRouter via OpenAI-compatible base URL; env-var config; graceful fallback to base provider |
 | `B-W5D24-5` | Extend `internal/validator/bloom.go` — add cross-subject Bloom verbs: science (predict, hypothesize, synthesize, observe, experiment), humanities (interpret, critique, contextualize), general (research, collaborate, present) | 🤖 | ✅ | Added 12 cross-subject verbs; existing math verbs unchanged; all tests passing |
 | `B-W5D24-6` | `internal/parser/image.go` — Dual image extraction: OCR (Tesseract/Tika) for printed text + AI Vision (GPT-4o/Claude) for handwriting, diagrams, and complex layouts | 🤖 | ✅ | Completed in Day 23; OCR stubbed pending Tesseract binary, AI Vision wired via ai.Provider |
+| `B-W5D24-7` | Gap fix: `oss import` CLI command — wire `PDFParser` + `ChunkDocument` + `ExecuteBulk` into a new `import` subcommand in `cmd/oss/main.go`. Flags: `--pdf`, `--syllabus`, `--subject`, `--workers`, `--pr`. Completes the bulk import flow end-to-end from PDF file to generated topic YAML files. | 🤖 | ✅ | Gap from B-W5D24-3: internal pipeline was implemented but CLI entrypoint was never wired into main.go |
 
 ### Day 25 (Fri) — GitHub API Client + Bot Commands + Docker + Testing
 
