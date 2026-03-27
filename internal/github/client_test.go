@@ -76,17 +76,22 @@ func TestClient_CreateRef(t *testing.T) {
 	}
 }
 
-func TestClient_PutContents(t *testing.T) {
-	var gotBody map[string]string
+func TestClient_PutContents_NewFile(t *testing.T) {
+	// New file: GET returns 404, PUT creates it — no sha required.
+	var gotBody map[string]interface{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			t.Errorf("PutContents: expected PUT, got %s", r.Method)
-		}
 		if !strings.Contains(r.URL.Path, "/contents/") {
 			t.Errorf("PutContents: unexpected path %s", r.URL.Path)
 		}
-		_ = json.NewDecoder(r.Body).Decode(&gotBody)
-		w.WriteHeader(http.StatusCreated)
+		switch r.Method {
+		case http.MethodGet:
+			http.Error(w, "not found", http.StatusNotFound)
+		case http.MethodPut:
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("PutContents: unexpected method %s", r.Method)
+		}
 	}))
 	defer srv.Close()
 
@@ -98,8 +103,7 @@ func TestClient_PutContents(t *testing.T) {
 	if gotBody["message"] != "Add teaching notes" {
 		t.Errorf("PutContents() message = %q", gotBody["message"])
 	}
-	// Content should be base64 encoded
-	decoded, err := base64.StdEncoding.DecodeString(gotBody["content"])
+	decoded, err := base64.StdEncoding.DecodeString(gotBody["content"].(string))
 	if err != nil {
 		t.Fatalf("PutContents() content not valid base64: %v", err)
 	}
@@ -108,6 +112,35 @@ func TestClient_PutContents(t *testing.T) {
 	}
 	if gotBody["branch"] != "oss-bot/branch" {
 		t.Errorf("PutContents() branch = %q", gotBody["branch"])
+	}
+	// No sha field when file is new
+	if _, hasSHA := gotBody["sha"]; hasSHA {
+		t.Error("PutContents() should not include sha for new file")
+	}
+}
+
+func TestClient_PutContents_ExistingFile(t *testing.T) {
+	// Existing file: GET returns sha, PUT must include it.
+	var gotBody map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]string{"sha": "existing-sha-abc"})
+		case http.MethodPut:
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := newTestClient("test-token", "owner", "repo", srv.URL)
+	err := client.PutContents(context.Background(), "topics/01/existing.md", "Update notes", "new content", "oss-bot/branch")
+	if err != nil {
+		t.Fatalf("PutContents() error = %v", err)
+	}
+	if gotBody["sha"] != "existing-sha-abc" {
+		t.Errorf("PutContents() sha = %q, want existing-sha-abc", gotBody["sha"])
 	}
 }
 

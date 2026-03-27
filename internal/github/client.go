@@ -55,15 +55,33 @@ func (c *Client) CreateRef(ctx context.Context, ref, sha string) error {
 }
 
 // PutContents creates or updates a single file in the repo on the given branch.
+// If the file already exists on the branch (inherited from main), its sha is
+// fetched automatically and included in the request — required by the GitHub API.
 // PUT /repos/{owner}/{repo}/contents/{path}
 func (c *Client) PutContents(ctx context.Context, path, message, content, branch string) error {
 	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s", c.baseURL, c.owner, c.repo, path)
-	body := map[string]string{
+	body := map[string]interface{}{
 		"message": message,
 		"content": base64.StdEncoding.EncodeToString([]byte(content)),
 		"branch":  branch,
 	}
+	// GitHub requires the existing file's sha when updating. Fetch it if present.
+	if sha, err := c.fileSHA(ctx, path, branch); err == nil {
+		body["sha"] = sha
+	}
 	return c.do(ctx, http.MethodPut, url, body, nil)
+}
+
+// fileSHA returns the blob sha of a file on the given ref, or an error if not found.
+func (c *Client) fileSHA(ctx context.Context, path, ref string) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", c.baseURL, c.owner, c.repo, path, ref)
+	var result struct {
+		SHA string `json:"sha"`
+	}
+	if err := c.do(ctx, http.MethodGet, url, nil, &result); err != nil {
+		return "", err
+	}
+	return result.SHA, nil
 }
 
 // CreatePull opens a pull request and returns its number and URL.
