@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ type BulkResult struct {
 type BulkRequest struct {
 	Chunks     []parser.Chunk   // Document chunks to process in parallel
 	SyllabusID string           // Target syllabus identifier
+	SubjectID  string           // Target subject (e.g. malaysia-kssm-matematik-tingkatan-4); optional
 	Mode       ExecutionMode    // ModePreview, ModeWriteFS, or ModeCreatePR
 	Source     string           // "cli", "bot", "web" — for provenance
 	Workers    int              // Concurrent workers (0 defaults to 3)
@@ -193,6 +195,95 @@ func syllabusTopicPath(syllabusID, heading string) string {
 	return "syllabi/" + syllabusID + "/" + slug + ".yaml"
 }
 
+// chunkSubjectID returns the effective subject ID for a bulk request:
+// SubjectID if set, otherwise SyllabusID as a fallback.
+func chunkSubjectID(req BulkRequest) string {
+	if req.SubjectID != "" {
+		return req.SubjectID
+	}
+	return req.SyllabusID
+}
+
+// chunkTopicFileID derives the canonical OSS topic file ID (e.g. "MT4-01")
+// from a subject ID, chunk heading, and chunk index.
+func chunkTopicFileID(subjectID, heading string, index int) string {
+	if subjectID == "" {
+		return ""
+	}
+	prefix := chunkSubjectPrefix(subjectID)
+	grade := chunkGradeNumber(subjectID)
+	seq := chunkTopicSeqNum(heading, index)
+	return fmt.Sprintf("%s%s-%02d", prefix, grade, seq)
+}
+
+func chunkSubjectPrefix(subjectID string) string {
+	prefixes := []struct{ pattern, prefix string }{
+		{"matematik", "MT"}, {"matematika", "MT"}, {"mathematics", "MT"},
+		{"sains", "SC"}, {"science", "SC"},
+		{"fizik", "PH"}, {"fisika", "PH"}, {"physics", "PH"},
+		{"kimia", "CH"}, {"chemistry", "CH"},
+		{"biologi", "BI"}, {"biology", "BI"},
+		{"sejarah", "HI"}, {"history", "HI"},
+		{"geografi", "GE"}, {"geography", "GE"},
+		{"bahasa-melayu", "BM"}, {"english", "EN"},
+		{"bahasa-arab", "AR"}, {"arabic", "AR"},
+	}
+	for _, p := range prefixes {
+		if strings.Contains(subjectID, p.pattern) {
+			return p.prefix
+		}
+	}
+	gradeWords := map[string]bool{"tingkatan": true, "class": true, "year": true, "kelas": true}
+	parts := strings.Split(subjectID, "-")
+	for i := len(parts) - 1; i >= 0; i-- {
+		p := parts[i]
+		if _, err := strconv.Atoi(p); err != nil && !gradeWords[p] && len(p) >= 2 {
+			return strings.ToUpper(p[:2])
+		}
+	}
+	return "XX"
+}
+
+func chunkGradeNumber(subjectID string) string {
+	parts := strings.Split(subjectID, "-")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if n, err := strconv.Atoi(parts[i]); err == nil && n >= 1 && n <= 20 {
+			return parts[i]
+		}
+	}
+	return ""
+}
+
+func chunkTopicSeqNum(heading string, index int) int {
+	if fields := strings.Fields(heading); len(fields) > 0 {
+		numStr := strings.SplitN(fields[0], ".", 2)[0]
+		if n, err := strconv.Atoi(numStr); err == nil && n > 0 {
+			return n
+		}
+	}
+	return index + 1
+}
+
+func chunkCountryFromSubject(id string) string {
+	if idx := strings.Index(id, "-"); idx > 0 {
+		return id[:idx]
+	}
+	return id
+}
+
+func chunkLanguageForCountry(countryID string) string {
+	langs := map[string]string{
+		"malaysia":  "ms",
+		"indonesia": "id",
+		"japan":     "ja",
+		"uae":       "ar",
+	}
+	if l, ok := langs[countryID]; ok {
+		return l
+	}
+	return "en"
+}
+
 // processChunk generates curriculum content for a single document chunk.
 func processChunk(ctx context.Context, req BulkRequest, chunk parser.Chunk) (string, error) {
 	if err := ctx.Err(); err != nil {
@@ -226,17 +317,72 @@ func processChunk(ctx context.Context, req BulkRequest, chunk parser.Chunk) (str
 		}
 	}
 
+	// Compute per-topic OSS metadata. Pre-filling known fields in the prompt
+	// prevents the AI from hallucinating subject_id, country_id, etc.
+	subjectID := chunkSubjectID(req)
+	topicID := chunkTopicFileID(subjectID, chunk.Heading, chunk.Index)
+	if topicID == "" {
+		slug := strings.ToLower(strings.Join(strings.Fields(chunk.Heading), "-"))
+		if slug == "" {
+			slug = fmt.Sprintf("topic-%02d", chunk.Index+1)
+		}
+		topicID = slug
+	}
+	countryID := chunkCountryFromSubject(subjectID)
+	language := chunkLanguageForCountry(countryID)
+
 	prompt := fmt.Sprintf(
-		`Extract curriculum topics from this document section for syllabus %q.
+		`You are extracting curriculum content from an official curriculum document and generating an Open School Syllabus (OSS) topic YAML file.
 
-Heading: %s
-
-Content:
+Topic: %s
+Document content:
 %s%s
 
-Output structured YAML listing any topics, learning objectives, and key concepts found.
-If existing content is provided above, generate only new or supplementary material.`,
-		req.SyllabusID, chunk.Heading, chunk.Content, existingSection,
+Generate a SINGLE YAML document. Pre-filled fields MUST be kept exactly as shown. Fill in all FILL_ placeholders from the document content.
+
+id: %s
+official_ref: "FILL_OFFICIAL_REF"   # chapter/section code as printed in document, e.g. "1.0" or "Bab 1"
+name: "FILL_NAME"                   # topic name in document language (Malay for KSSM)
+name_en: "FILL_NAME_EN"             # English translation of name — always translate
+subject_id: %s
+syllabus_id: %s
+country_id: %s
+language: %s
+difficulty: FILL_DIFFICULTY         # beginner | intermediate | advanced
+tier: core                          # core | extension
+
+learning_objectives:
+  - id: FILL_SP_CODE                # STANDARD PEMBELAJARAN code, e.g. 1.1.1
+    text: "FILL_TEXT_EN"            # objective text in English
+    bloom: FILL_BLOOM               # remember | understand | apply | analyze | evaluate | create
+  # repeat for ALL objectives in the document
+
+prerequisites:
+  required: []
+  recommended: []
+
+bloom_levels:
+  - FILL_BLOOM_LEVELS               # list all distinct bloom levels used above
+
+mastery:
+  minimum_score: 0.75
+  assessment_count: 3
+  spaced_repetition:
+    initial_interval_days: 3
+    multiplier: 2.5
+
+ai_teaching_notes: "%s.teaching.md"
+quality_level: 1
+provenance: ai-assisted
+
+RULES:
+- Output ONLY valid YAML — no markdown fences, no explanatory text before or after
+- Extract ALL learning objectives from the STANDARD PEMBELAJARAN section
+- name_en MUST be the English translation of the name field
+- All learning_objectives text fields MUST be in English
+- bloom levels: remember | understand | apply | analyze | evaluate | create`,
+		chunk.Heading, chunk.Content, existingSection,
+		topicID, subjectID, req.SyllabusID, countryID, language, topicID,
 	)
 
 	resp, err := req.Provider.Complete(ctx, ai.CompletionRequest{

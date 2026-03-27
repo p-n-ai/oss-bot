@@ -463,6 +463,7 @@ Example:
 	cmd.Flags().Int("workers", 3, "Number of parallel AI workers (overrides OSS_WORKER_COUNT)")
 	cmd.Flags().Int("chunk-size", 2000, "Max tokens per chunk (lower = more files, higher = less context loss)")
 	cmd.Flags().Bool("pr", false, "Create a GitHub PR instead of writing to filesystem")
+	cmd.Flags().Bool("force", false, "Overwrite existing topic files instead of AI-merging them")
 	cmd.MarkFlagRequired("pdf")
 	cmd.MarkFlagRequired("syllabus")
 	return cmd
@@ -475,6 +476,7 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	workers, _ := cmd.Flags().GetInt("workers")
 	chunkSize, _ := cmd.Flags().GetInt("chunk-size")
 	createPR, _ := cmd.Flags().GetBool("pr")
+	force, _ := cmd.Flags().GetBool("force")
 
 	repoPath := os.Getenv("OSS_REPO_PATH")
 	if repoPath == "" {
@@ -486,6 +488,18 @@ func runImport(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Wrap with a reasoning provider for bulk import and content merge.
+	// Uses OSS_AI_REASONING_API_KEY + OSS_AI_REASONING_MODEL (default: deepseek/deepseek-r1).
+	// Falls back to the base provider transparently when the key is not set.
+	reasoningProvider := ai.NewReasoningProviderFromEnv(provider)
+	if os.Getenv("OSS_AI_REASONING_API_KEY") != "" {
+		model := os.Getenv("OSS_AI_REASONING_MODEL")
+		if model == "" {
+			model = "deepseek/deepseek-r1"
+		}
+		fmt.Printf("Using reasoning model: %s\n", model)
+	}
+
 	// 1. Extract text from PDF
 	fmt.Printf("Extracting text from %s...\n", pdfPath)
 	text, err := parser.ExtractPDFText(pdfPath)
@@ -494,13 +508,19 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("Extracted %d characters\n", len(text))
 
-	// 2. Chunk the document. Try heading-based splitting first (Markdown + Malay
-	// DSKP markers). A lower MaxChunkSize forces size-based splits even when
-	// the whole document would otherwise fit in one chunk.
-	chunks := parser.ChunkDocument(text, parser.ChunkOptions{
-		MaxChunkSize: chunkSize,
-		SplitOn:      []string{"# ", "## ", "### ", "Chapter ", "Bab ", "BAB ", "BAHAGIAN ", "Bahagian ", "TAJUK", "Tajuk"},
-	})
+	// 2. Try DSKP-specific extraction first; fall back to generic chunker.
+	// DSKP (Dokumen Standard Kurikulum dan Pentaksiran) uses BIDANG PEMBELAJARAN
+	// / TAJUK markers that are distinct from generic Markdown headings.
+	var chunks []parser.Chunk
+	if dskpTopics := extractDSKPTopics(text); len(dskpTopics) > 0 {
+		fmt.Printf("Detected DSKP format: %d topics (BIDANG PEMBELAJARAN/TAJUK structure)\n", len(dskpTopics))
+		chunks = dskpTopicsToChunks(dskpTopics)
+	} else {
+		chunks = parser.ChunkDocument(text, parser.ChunkOptions{
+			MaxChunkSize: chunkSize,
+			SplitOn:      []string{"# ", "## ", "### ", "Chapter ", "Bab ", "BAB ", "BAHAGIAN ", "Bahagian ", "TAJUK", "Tajuk"},
+		})
+	}
 	fmt.Printf("Split into %d chunks\n", len(chunks))
 
 	// 3. Resolve output directory — search for existing subject topics dir
@@ -523,39 +543,79 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	result, err := pipeline.ExecuteBulk(cmd.Context(), pipeline.BulkRequest{
 		Chunks:     chunks,
 		SyllabusID: syllabusID,
+		SubjectID:  subjectID,
 		Mode:       mode,
 		Source:     "cli",
 		Workers:    workers,
 		Reporter:   pipeline.NewCLIReporter(),
-		Provider:   provider,
+		Provider:   reasoningProvider,
 	})
 	if err != nil {
 		return fmt.Errorf("bulk import: %w", err)
 	}
 
-	// 5. Write each topic output to a YAML file
+	// 5. Write each topic output to a YAML file.
+	// Use the canonical OSS topic ID (e.g. MT4-01) when subjectID is known;
+	// fall back to the heading slug otherwise.
+	// If the file already exists, AI-merge the existing and new content into a
+	// single coherent YAML before writing (no duplicate documents in the file).
 	written := 0
+	merged := 0
 	for _, tr := range result.Topics {
 		if tr.Err != nil || strings.TrimSpace(tr.Output) == "" {
 			continue
 		}
-		slug := importSlug(tr.Heading)
-		if slug == "" {
-			slug = fmt.Sprintf("topic-%02d", tr.ChunkIndex+1)
+		var fileID string
+		if subjectID != "" {
+			fileID = topicFileID(subjectID, tr.Heading, tr.ChunkIndex)
+		} else {
+			slug := importSlug(tr.Heading)
+			if slug == "" {
+				slug = fmt.Sprintf("topic-%02d", tr.ChunkIndex+1)
+			}
+			fileID = slug
 		}
-		outPath := filepath.Join(topicsDir, slug+".yaml")
-		if err := os.WriteFile(outPath, []byte(tr.Output), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "  ⚠ writing %s: %v\n", outPath, err)
-			continue
+		outPath := filepath.Join(topicsDir, fileID+".yaml")
+
+		if existingData, readErr := os.ReadFile(outPath); readErr == nil {
+			if force {
+				// --force: overwrite existing file with new content directly.
+				if err := os.WriteFile(outPath, []byte(tr.Output), 0644); err != nil {
+					fmt.Fprintf(os.Stderr, "  ⚠ writing %s: %v\n", outPath, err)
+					continue
+				}
+				fmt.Printf("  replaced: %s\n", outPath)
+				merged++
+			} else {
+				// Default: use AI to merge existing + new content.
+				fmt.Printf("  merging: %s\n", outPath)
+				mergedContent, mergeErr := mergeTopicYAML(cmd.Context(), reasoningProvider, string(existingData), tr.Output, tr.Heading)
+				if mergeErr != nil {
+					fmt.Fprintf(os.Stderr, "  ⚠ AI merge failed for %s: %v — skipping\n", outPath, mergeErr)
+					continue
+				}
+				if err := os.WriteFile(outPath, []byte(mergedContent), 0644); err != nil {
+					fmt.Fprintf(os.Stderr, "  ⚠ writing merged %s: %v\n", outPath, err)
+					continue
+				}
+				fmt.Printf("  merged: %s\n", outPath)
+				merged++
+			}
+		} else {
+			// File does not exist — create fresh.
+			if err := os.WriteFile(outPath, []byte(tr.Output), 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "  ⚠ writing %s: %v\n", outPath, err)
+				continue
+			}
+			fmt.Printf("  wrote: %s\n", outPath)
+			written++
 		}
-		fmt.Printf("  wrote: %s\n", outPath)
-		written++
 	}
 
 	// 6. Summary
-	fmt.Printf("\nProcessed %d/%d chunks in %s — wrote %d file(s) to %s\n",
+	fmt.Printf("\nProcessed %d/%d chunks in %s — wrote %d new, merged %d existing file(s) in %s\n",
 		result.ProcessedChunks, len(chunks), result.Duration.Round(time.Second),
-		written, topicsDir)
+		written, merged, topicsDir)
 
 	if len(result.Errors) > 0 {
 		fmt.Fprintf(os.Stderr, "%d chunks failed:\n", len(result.Errors))
@@ -598,6 +658,198 @@ func findSubjectTopicsDir(repoPath, subjectID, syllabusID string) (string, error
 	return "", fmt.Errorf("directory %q not found under %s — run 'oss scaffold subject' first", searchID, repoPath)
 }
 
+// dskpTopic holds a single topic extracted from a DSKP (Dokumen Standard
+// Kurikulum dan Pentaksiran) document, preserving the BIDANG PEMBELAJARAN
+// (learning domain) that groups multiple topics.
+type dskpTopic struct {
+	LearningArea string // BIDANG PEMBELAJARAN label (e.g. "PERKAITAN DAN ALGEBRA")
+	Number       string // Topic number (e.g. "1.0")
+	Name         string // Topic name in Malay (e.g. "FUNGSI DAN PERSAMAAN KUADRATIK")
+	Content      string // Raw text content of the topic section
+}
+
+// extractDSKPTopics scans PDF-extracted text for the DSKP section structure:
+//
+//	BIDANG PEMBELAJARAN
+//	<area name>
+//	TAJUK
+//	<N.0 topic name>
+//	<content until next TAJUK or BIDANG PEMBELAJARAN>
+//
+// Returns one entry per TAJUK found. Returns nil when the pattern is not
+// detected (non-DSKP document).
+func extractDSKPTopics(text string) []dskpTopic {
+	lines := strings.Split(text, "\n")
+	var topics []dskpTopic
+
+	currentArea := ""
+	var currentTopic *dskpTopic
+	var contentLines []string
+
+	saveCurrent := func() {
+		if currentTopic != nil {
+			currentTopic.Content = strings.TrimSpace(strings.Join(contentLines, "\n"))
+			topics = append(topics, *currentTopic)
+			currentTopic = nil
+			contentLines = nil
+		}
+	}
+
+	// nextNonEmpty advances past blank lines and returns the first non-blank
+	// line and its index, or ("", len(lines)) if at EOF.
+	nextNonEmpty := func(start int) (string, int) {
+		for start < len(lines) {
+			if s := strings.TrimSpace(lines[start]); s != "" {
+				return s, start
+			}
+			start++
+		}
+		return "", start
+	}
+
+	i := 0
+	for i < len(lines) {
+		line := strings.TrimSpace(lines[i])
+		switch {
+		case line == "BIDANG PEMBELAJARAN":
+			saveCurrent()
+			area, ni := nextNonEmpty(i + 1)
+			if area != "" {
+				currentArea = area
+				i = ni + 1
+			} else {
+				i++
+			}
+		case line == "TAJUK":
+			saveCurrent()
+			topicLine, ni := nextNonEmpty(i + 1)
+			if topicLine != "" {
+				number, name := parseDSKPTopicLine(topicLine)
+				currentTopic = &dskpTopic{
+					LearningArea: currentArea,
+					Number:       number,
+					Name:         name,
+				}
+				contentLines = []string{topicLine}
+				i = ni + 1
+			} else {
+				i++
+			}
+		default:
+			if currentTopic != nil {
+				contentLines = append(contentLines, lines[i])
+			}
+			i++
+		}
+	}
+	saveCurrent()
+	return topics
+}
+
+// parseDSKPTopicLine splits "1.0 TOPIC NAME" into number ("1.0") and name.
+// Returns ("", line) for lines that don't match the N.0 pattern.
+func parseDSKPTopicLine(line string) (number, name string) {
+	idx := strings.Index(line, " ")
+	if idx > 0 {
+		candidate := line[:idx]
+		if strings.Contains(candidate, ".") {
+			return candidate, strings.TrimSpace(line[idx+1:])
+		}
+	}
+	return "", line
+}
+
+// dskpTopicsToChunks converts DSKP topics into parser.Chunk values. Each chunk
+// prepends a structured preamble so the AI knows the learning domain context.
+func dskpTopicsToChunks(topics []dskpTopic) []parser.Chunk {
+	chunks := make([]parser.Chunk, len(topics))
+	total := len(topics)
+	for i, t := range topics {
+		heading := strings.TrimSpace(t.Number + " " + t.Name)
+		content := fmt.Sprintf("BIDANG PEMBELAJARAN: %s\nTAJUK: %s\n\n%s",
+			t.LearningArea, heading, t.Content)
+		chunks[i] = parser.Chunk{
+			Index:   i,
+			Total:   total,
+			Heading: heading,
+			Content: content,
+		}
+	}
+	return chunks
+}
+
+// topicFileID derives the canonical OSS topic file ID (e.g. "MT4-01") from
+// the subject ID, chunk heading, and chunk index.
+// Format: {PREFIX}{grade_num}-{NN} as defined in docs/id-conventions.md.
+func topicFileID(subjectID, heading string, chunkIndex int) string {
+	prefix := subjectPrefix(subjectID)
+	grade := gradeNumber(subjectID)
+	seq := topicSeqNum(heading, chunkIndex)
+	return fmt.Sprintf("%s%s-%02d", prefix, grade, seq)
+}
+
+// subjectPrefix returns the 2-letter topic ID prefix for a subject ID.
+// The prefix is always derived from the English subject name (language-neutral).
+// See docs/id-conventions.md prefix table.
+func subjectPrefix(subjectID string) string {
+	prefixes := []struct{ pattern, prefix string }{
+		{"matematik", "MT"}, {"matematika", "MT"}, {"mathematics", "MT"},
+		{"sains", "SC"}, {"science", "SC"},
+		{"fizik", "PH"}, {"fisika", "PH"}, {"physics", "PH"},
+		{"kimia", "CH"}, {"chemistry", "CH"},
+		{"biologi", "BI"}, {"biology", "BI"},
+		{"sejarah", "HI"}, {"history", "HI"},
+		{"geografi", "GE"}, {"geography", "GE"},
+		{"bahasa-melayu", "BM"},
+		{"english", "EN"},
+		{"bahasa-arab", "AR"}, {"arabic", "AR"},
+		{"indonesian", "ID"},
+	}
+	for _, p := range prefixes {
+		if strings.Contains(subjectID, p.pattern) {
+			return p.prefix
+		}
+	}
+	// Fallback: first 2 uppercase letters of the last meaningful word
+	gradeWords := map[string]bool{
+		"tingkatan": true, "class": true, "year": true,
+		"kelas": true, "chugaku": true, "koko": true,
+	}
+	parts := strings.Split(subjectID, "-")
+	for i := len(parts) - 1; i >= 0; i-- {
+		p := parts[i]
+		if _, err := strconv.Atoi(p); err != nil && !gradeWords[p] && len(p) >= 2 {
+			return strings.ToUpper(p[:2])
+		}
+	}
+	return "XX"
+}
+
+// gradeNumber extracts the numeric grade from a subject ID.
+// Only values 1–20 qualify as grades; larger numbers are subject codes (e.g. 0580).
+// Returns "" for exam-based syllabi with no grade (e.g. JEE, Cambridge IGCSE).
+func gradeNumber(subjectID string) string {
+	parts := strings.Split(subjectID, "-")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if n, err := strconv.Atoi(parts[i]); err == nil && n >= 1 && n <= 20 {
+			return parts[i]
+		}
+	}
+	return ""
+}
+
+// topicSeqNum extracts the integer sequence from a DSKP heading like
+// "1.0 FUNGSI DAN PERSAMAAN" → 1. Falls back to chunkIndex+1.
+func topicSeqNum(heading string, chunkIndex int) int {
+	if fields := strings.Fields(heading); len(fields) > 0 {
+		numStr := strings.SplitN(fields[0], ".", 2)[0]
+		if n, err := strconv.Atoi(numStr); err == nil && n > 0 {
+			return n
+		}
+	}
+	return chunkIndex + 1
+}
+
 // importSlug converts a heading string into a lowercase hyphenated filename slug.
 func importSlug(heading string) string {
 	slug := strings.ToLower(heading)
@@ -613,6 +865,43 @@ func importSlug(heading string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// mergeTopicYAML uses AI to merge an existing OSS topic YAML file with newly
+// imported content. The existing file is authoritative for identity fields
+// (id, subject_id, syllabus_id, country_id, language); the AI supplements it
+// with any new learning objectives or improved fields from the new content.
+func mergeTopicYAML(ctx context.Context, provider ai.Provider, existing, newContent, heading string) (string, error) {
+	prompt := fmt.Sprintf(`You are merging two versions of an OSS topic YAML file for topic "%s".
+
+EXISTING FILE (authoritative — keep its structure and identity fields):
+%s
+
+NEW IMPORTED CONTENT (may contain additional objectives or corrections):
+%s
+
+Merge rules:
+1. Keep the existing file's id, subject_id, syllabus_id, country_id, language, official_ref, name, mastery, ai_teaching_notes, provenance EXACTLY as-is
+2. Update name_en only if the existing value is missing or clearly incorrect
+3. Add any NEW learning_objectives from the new content not already present (deduplicate by id and by text similarity ≥ 85%%)
+4. Set bloom_levels to the union of all bloom levels in the merged learning_objectives
+5. Keep the higher of the two quality_level values
+6. Keep prerequisites.required and prerequisites.recommended from the existing file (do not overwrite with empty lists)
+7. Output ONLY valid YAML — no markdown fences, no explanatory text before or after`,
+		heading, existing, newContent)
+
+	resp, err := provider.Complete(ctx, ai.CompletionRequest{
+		Messages: []ai.Message{
+			{Role: "system", Content: "You are a curriculum YAML merge assistant. Produce a single merged YAML file that preserves all existing content and adds new material without duplication."},
+			{Role: "user", Content: prompt},
+		},
+		MaxTokens:   2048,
+		Temperature: 0.1,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
 }
 
 // resolveSourceText reads text from a file path or returns the provided text directly.

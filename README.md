@@ -128,11 +128,17 @@ chmod +x /usr/local/bin/oss
 ### Configuration
 
 ```bash
-# Set your AI provider (the bot needs an AI model to generate content)
+# Required — AI provider for content generation
 export OSS_AI_PROVIDER=openai          # openai | anthropic | ollama
 export OSS_AI_API_KEY=sk-...           # Not needed for Ollama
 export OSS_REPO_PATH=./oss             # Path to your local OSS clone
-export OSS_GITHUB_TOKEN=ghp_...        # For creating PRs (optional)
+
+# Optional — reasoning model for bulk import and content merge (recommended)
+export OSS_AI_REASONING_API_KEY=sk-or-...           # OpenRouter API key
+export OSS_AI_REASONING_MODEL=deepseek/deepseek-r1  # default; also: moonshotai/kimi-k2.5, qwen/qwen3.5, openai/o3-mini
+
+# Optional — for creating PRs
+export OSS_GITHUB_TOKEN=ghp_...
 ```
 
 ### Commands
@@ -178,27 +184,92 @@ oss generate examples cambridge/igcse/mathematics-0580/topics/algebra/05-quadrat
 
 Generated files are written to the local OSS clone. Review them, then commit and PR.
 
-#### Import from Documents
+#### Import from PDF
+
+Extract curriculum topics from a PDF and generate structured OSS YAML files.
 
 ```bash
-# Import from PDF (CLI — lightweight, no external dependencies)
-oss import --pdf ./cambridge-igcse-maths-2025-syllabus.pdf --board cambridge --level igcse --subject mathematics
-
-# Import from any format (requires Apache Tika server running)
-oss import --file ./kssm-form4.docx --board malaysia --level kssm --subject mathematics --language ms
-oss import --file ./curriculum.pptx --board cambridge --level igcse --subject mathematics
-oss import --file ./syllabus.html --board india --level cbse --subject mathematics
+oss import --pdf <file> --syllabus <id> [flags]
 ```
 
-The CLI uses Go-native PDF extraction (`ledongthuc/pdf`) for standalone `--pdf` imports. The `--file` flag supports any format (PDF, DOCX, PPTX, XLSX, HTML) via Apache Tika. The server (Bot + Web Portal) always uses Tika for broad format support.
+**Flags**
 
-The importer:
-1. Extracts text and structure from the document
-2. Identifies subjects, topics, and learning objectives
-3. Infers Bloom's taxonomy levels from specification verbs ("State" → remember, "Calculate" → apply, "Evaluate" → evaluate)
-4. Maps prerequisite relationships between topics
-5. Generates Level 0-1 topic stubs
-6. Outputs to the correct directory structure
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--pdf` | *(required)* | Path to the PDF file |
+| `--syllabus` | *(required)* | Target syllabus ID, e.g. `malaysia-kssm` |
+| `--subject` | `""` | Subject ID for correct file naming, e.g. `malaysia-kssm-matematik-tingkatan-4`. When set, output files follow the OSS topic ID convention (`MT4-01.yaml`, `PH12-03.yaml`, etc.) |
+| `--workers` | `3` | Number of parallel AI workers — each processes one topic concurrently |
+| `--chunk-size` | `2000` | Max tokens per chunk for the generic chunker. Lower values force more splits on dense documents |
+| `--force` | `false` | **Replace** existing topic files outright. Default (`false`) AI-merges new content into the existing file without losing any objectives |
+| `--pr` | `false` | Create a GitHub PR instead of writing files to the local filesystem |
+
+**Examples**
+
+```bash
+# Typical workflow: scaffold the subject first, then import
+oss scaffold subject --syllabus malaysia-kssm --id malaysia-kssm-matematik-tingkatan-4
+oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
+           --syllabus malaysia-kssm \
+           --subject malaysia-kssm-matematik-tingkatan-4
+
+# More workers for a large document
+oss import --pdf textbook.pdf \
+           --syllabus india-cbse \
+           --subject india-cbse-physics-class-12 \
+           --workers 5
+
+# Re-import from scratch — replace all existing files
+oss import --pdf DSKP.pdf --syllabus malaysia-kssm \
+           --subject malaysia-kssm-matematik-tingkatan-4 --force
+
+# Open a GitHub PR directly instead of writing to disk
+oss import --pdf DSKP.pdf --syllabus malaysia-kssm \
+           --subject malaysia-kssm-matematik-tingkatan-4 --pr
+```
+
+**What it does**
+
+1. Extracts text from the PDF using Go-native `ledongthuc/pdf` (no external dependencies)
+2. **DSKP auto-detection** — if `BIDANG PEMBELAJARAN` / `TAJUK` markers are found (Malaysian KSSM curriculum documents), splits exactly on those boundaries for per-chapter accuracy; otherwise falls back to generic heading-based chunking
+3. Processes each topic in parallel using the configured number of workers
+4. Names output files using the [OSS ID convention](docs/id-conventions.md) — e.g. `MT4-01.yaml` for Matematik Tingkatan 4 Chapter 1, `PH12-03.yaml` for Physics Class 12 Chapter 3
+5. Each generated file includes: `id`, `official_ref`, `name` (MOE language), `name_en` (English translation), `subject_id`, `syllabus_id`, `country_id`, `language`, `difficulty`, `tier`, `learning_objectives` (with SP codes and Bloom's levels in English), `prerequisites`, `mastery`, `provenance: ai-assisted`
+6. **Existing file handling:**
+   - `--force` not set (default): AI compares the existing file with the newly extracted content and produces a single merged YAML — new objectives are added, duplicates are skipped, identity fields (`id`, `subject_id`, etc.) are preserved
+   - `--force` set: existing file is overwritten with the freshly generated content
+
+**Using a reasoning model (recommended)**
+
+Set `OSS_AI_REASONING_API_KEY` to route both extraction and merge calls through a reasoning model via [OpenRouter](https://openrouter.ai). This produces significantly better Bloom's level inference and objective extraction for complex documents.
+
+```bash
+export OSS_AI_REASONING_API_KEY=sk-or-...
+export OSS_AI_REASONING_MODEL=deepseek/deepseek-r1   # optional — this is the default
+
+oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
+           --syllabus malaysia-kssm \
+           --subject malaysia-kssm-matematik-tingkatan-4
+```
+
+Expected output:
+```
+Using reasoning model: deepseek/deepseek-r1
+Extracting text from DSKP-KSSM-Matematik-Tingkatan-4.pdf...
+Extracted 30112 characters
+Detected DSKP format: 10 topics (BIDANG PEMBELAJARAN/TAJUK structure)
+Split into 10 chunks
+Starting bulk import of 10 items
+  [1/10] 1.0 FUNGSI DAN PERSAMAAN KUADRATIK: done
+  [2/10] 2.0 POLINOMIAL: done
+  ...
+  wrote: .../topics/MT4-01.yaml
+  wrote: .../topics/MT4-02.yaml
+  ...
+Processed 10/10 chunks in 45s — wrote 10 new, merged 0 existing file(s)
+```
+
+When `OSS_AI_REASONING_API_KEY` is not set, the standard `OSS_AI_PROVIDER` is used as a transparent fallback.
 
 #### Translate
 
@@ -252,15 +323,6 @@ oss scaffold subject --syllabus india-jee --name "Chemistry" --grade 11
 ```
 
 Creates the full directory structure and stub YAML files for a new curriculum.
-
-#### Bulk Import from Large Documents
-
-```bash
-# Import a 100-page DSKP or textbook — extracts all topics in parallel
-oss import --file dskp.pdf --syllabus malaysia-kssm --subject matematik-tingkatan1
-```
-
-For large documents (50+ pages), the bot processes chunks in parallel using multiple AI agents and shows real-time progress.
 
 #### Contribute via CLI
 
