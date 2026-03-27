@@ -526,15 +526,34 @@ docker compose up -d    # Starts bot, web portal, and Apache Tika sidecar
 # Run the CLI locally
 go run ./cmd/oss validate --repo-path ../oss
 
-# Run the GitHub bot locally (with smee.io for webhook forwarding)
-npx smee -u https://smee.io/your-channel -p 8090
-go run ./cmd/bot
-
-# Test the webhook handler with a simulated event
-OSS_GITHUB_WEBHOOK_SECRET=test-secret ./scripts/test-webhook.sh
-
 # Run the web portal
 cd web && npm install && npm run dev
+```
+
+### Running the Bot Locally
+
+The bot requires two terminals — one for the webhook tunnel, one for the server.
+
+**Get a smee.io channel** (one-time): visit [smee.io](https://smee.io) → "Start a new channel". Copy the URL — it stays the same across restarts.
+
+**Terminal 1 — webhook tunnel** (forwards GitHub events to your local machine):
+```bash
+smee -u https://smee.io/<your-channel> -p 8090 --path /webhook
+```
+
+> `--path /webhook` is required. Without it, smee forwards to `/` and all events are silently dropped.
+
+**Terminal 2 — bot server**:
+```bash
+set -a && source .env && set +a
+go run ./cmd/bot
+```
+
+Set the smee URL as your GitHub App's **Webhook URL** in App settings. Then comment `@oss-bot add teaching notes for <topic-id>` on any issue in the target repo.
+
+**Smoke-test without a live GitHub App:**
+```bash
+OSS_GITHUB_WEBHOOK_SECRET=<your-secret> ./scripts/test-webhook.sh
 ```
 
 ### Feedback API (pai-bot integration)
