@@ -443,6 +443,7 @@ oss-bot/
 │   │   ├── teaching_notes.go        # Teaching notes generator
 │   │   ├── assessments.go           # Assessment question generator
 │   │   ├── examples.go              # Worked examples generator
+│   │   ├── enrich.go               # Topic YAML enrichment (Level 2 fields via AI)
 │   │   ├── translator.go            # Topic translation
 │   │   ├── scaffolder.go            # New syllabus scaffolding
 │   │   └── importer.go              # Document → structured curriculum import (PDF, DOCX, PPTX, HTML)

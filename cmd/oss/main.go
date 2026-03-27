@@ -169,7 +169,7 @@ func runGenerateAll(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	contentTypes := []string{"teaching_notes", "assessments", "examples"}
+	contentTypes := []string{"teaching_notes", "assessments", "examples", "topic_enrich"}
 	totalJobs := len(topicIDs) * len(contentTypes)
 	completed := 0
 	var genErrors []string

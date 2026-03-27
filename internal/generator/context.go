@@ -83,7 +83,7 @@ type GenerationContext struct {
 // BuildContext assembles the generation context for a given topic ID.
 func BuildContext(repoDir, topicID string) (*GenerationContext, error) {
 	// Find the topic file
-	topicFile, err := findTopicFile(repoDir, topicID)
+	topicFile, err := FindTopicFile(repoDir, topicID)
 	if err != nil {
 		return nil, fmt.Errorf("finding topic %s: %w", topicID, err)
 	}
@@ -100,7 +100,7 @@ func BuildContext(repoDir, topicID string) (*GenerationContext, error) {
 
 	// Load prerequisites
 	for _, prereqID := range topic.Prerequisites.Required {
-		prereqFile, err := findTopicFile(repoDir, prereqID)
+		prereqFile, err := FindTopicFile(repoDir, prereqID)
 		if err != nil {
 			continue // Prerequisite might not exist yet
 		}
@@ -129,8 +129,8 @@ func BuildContext(repoDir, topicID string) (*GenerationContext, error) {
 	return ctx, nil
 }
 
-// findTopicFile searches the repo for a topic file with the given ID.
-func findTopicFile(repoDir, topicID string) (string, error) {
+// FindTopicFile searches the repo for a topic file with the given ID.
+func FindTopicFile(repoDir, topicID string) (string, error) {
 	var found string
 
 	err := filepath.Walk(repoDir, func(path string, info os.FileInfo, err error) error {

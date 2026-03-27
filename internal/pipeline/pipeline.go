@@ -40,7 +40,7 @@ type ContentReader interface {
 // Request is the unified input for all content generation, regardless of interface.
 type Request struct {
 	TopicPath        string
-	ContributionType string // "teaching_notes", "assessments", "examples"
+	ContributionType string // "teaching_notes", "assessments", "examples", "topic_enrich"
 	Content          string // Pre-extracted text (for import)
 	Mode             ExecutionMode
 	OutputDir        string            // For ModeWriteFS
@@ -104,6 +104,21 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 
 	// Strip markdown code fences (```yaml ... ```) that AI models sometimes add.
 	generated.Content = stripCodeFences(generated.Content)
+
+	// For topic_enrich, merge the AI output into the existing topic YAML file.
+	if req.ContributionType == "topic_enrich" {
+		topicFile, err := generator.FindTopicFile(p.repoPath, req.TopicPath)
+		if err != nil {
+			return nil, fmt.Errorf("finding topic file for enrichment: %w", err)
+		}
+		enrichedYAML, err := generator.EnrichTopicYAML(topicFile, generated.Content)
+		if err != nil {
+			return nil, fmt.Errorf("enriching topic YAML: %w", err)
+		}
+		relPath, _ := filepath.Rel(p.repoPath, topicFile)
+		generated.Content = enrichedYAML
+		generated.Files = map[string]string{relPath: enrichedYAML}
+	}
 
 	// Populate Files map if the generator did not set it.
 	if len(generated.Files) == 0 && generated.Content != "" {
@@ -306,6 +321,8 @@ func (p *Pipeline) generate(ctx context.Context, genCtx *generator.GenerationCon
 		return generator.GenerateAssessments(ctx, p.aiProvider, genCtx, count, difficulty)
 	case "examples":
 		return generator.GenerateExamples(ctx, p.aiProvider, genCtx)
+	case "topic_enrich":
+		return generator.GenerateTopicEnrichment(ctx, p.aiProvider, genCtx)
 	default:
 		return nil, fmt.Errorf("unknown contribution type: %s", req.ContributionType)
 	}

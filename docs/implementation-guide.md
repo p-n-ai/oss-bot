@@ -3101,7 +3101,7 @@ const (
 // Request is the unified input for all content generation, regardless of interface.
 type Request struct {
 	TopicPath        string
-	ContributionType string // "teaching_notes", "assessments", "examples", "translation", "import"
+	ContributionType string // "teaching_notes", "assessments", "examples", "topic_enrich", "translation", "import"
 	Content          string // Pre-extracted text (after input processing)
 	Mode             ExecutionMode
 	OutputDir        string            // For ModeWriteFS
@@ -7605,7 +7605,7 @@ Write the oss-bot section of the 6-week report covering:
 |---------|-----------|-----------|---------|
 | `internal/validator` | Day 16-17 | `validator.go`, `bloom.go`, `prerequisites.go`, `duplicates.go`, `quality.go` | JSON Schema validation, content quality checks |
 | `internal/ai` | Day 18 | `provider.go`, `mock.go`, `openai.go`, `anthropic.go`, `ollama.go` | AI provider interface (shared with P&AI Bot) |
-| `internal/generator` | Day 18-20 | `context.go`, `teaching_notes.go`, `assessments.go`, `examples.go`, `translator.go`, `scaffolder.go` | Content generation (individual generators) |
+| `internal/generator` | Day 18-20 | `context.go`, `teaching_notes.go`, `assessments.go`, `examples.go`, `enrich.go`, `translator.go`, `scaffolder.go` | Content generation (individual generators + topic enrichment) |
 | `internal/pipeline` | Day 19 | `pipeline.go` | **Shared orchestrator** — all three interfaces call `pipeline.Execute()` with different modes (Preview, WriteFS, CreatePR) |
 | `internal/output` | Day 19 | `writer.go`, `github.go` | Output writers: `LocalWriter` (CLI filesystem), `GitHubWriter` (Bot/Web PR creation) |
 | `internal/parser` | Day 23-24 | `document.go`, `pdf.go`, `tika.go`, `url.go`, `image.go`, `contribution.go` | ContentExtractor interface, Go-native PDF (CLI), Tika multi-format (server), URL fetcher, image extraction (OCR + AI Vision), natural language parsing |

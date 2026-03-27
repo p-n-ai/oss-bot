@@ -181,7 +181,7 @@ oss generate assessments cambridge/igcse/mathematics-0580/topics/algebra/05-quad
 # Generate worked examples
 oss generate examples cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations --count 3
 
-# Generate all content types (teaching-notes, assessments, examples) for every topic in a subject-grade
+# Generate all content types (teaching-notes, assessments, examples, topic enrichment) for every topic in a subject-grade
 oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
 
 # With more parallel workers
@@ -195,7 +195,7 @@ Generated files are written to the local OSS clone. Review them, then commit and
 
 #### Batch Generate (Post-Import)
 
-After importing topics from a PDF, generate all supporting content (teaching notes, assessments, and examples) for every topic in one command:
+After importing topics from a PDF, generate all supporting content (teaching notes, assessments, examples, and topic enrichment) for every topic in one command:
 
 ```bash
 oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
@@ -225,12 +225,18 @@ oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
            --syllabus malaysia-kssm \
            --subject-grade malaysia-kssm-matematik-tingkatan-4
 
-# 3. Generate teaching notes, assessments, and examples for all imported topics
+# 3. Generate teaching notes, assessments, examples, and enrich topic YAML for all imported topics
 oss generate all --syllabus malaysia-kssm \
                  --subject-grade malaysia-kssm-matematik-tingkatan-4
 ```
 
-The command discovers all `.yaml` topic files in the subject-grade's `topics/` directory, extracts their IDs, and runs the generation pipeline for each topic in parallel. Progress is reported as each generation completes.
+The command discovers all `.yaml` topic files in the subject-grade's `topics/` directory, extracts their IDs, and runs the generation pipeline for each topic in parallel. For each topic, it generates 4 content types:
+1. **Teaching notes** (`.teaching.md`) — pedagogical guide for educators
+2. **Assessments** (`.assessments.yaml`) — questions with rubrics and hints
+3. **Examples** (`.examples.yaml`) — worked examples at varying difficulty
+4. **Topic enrichment** — adds structured Level 2 fields (`teaching.sequence`, `teaching.common_misconceptions`, `engagement_hooks`) into the topic YAML to advance quality from Level 1 to Level 3
+
+Progress is reported as each generation completes.
 
 #### Import from PDF
 
@@ -342,8 +348,11 @@ Translations are placed in the `locales/{lang}/` directory, matching the source 
 #### Analyze Quality
 
 ```bash
-# Show quality overview for a syllabus
+# Show quality overview for a syllabus (by path)
 oss quality cambridge/igcse/mathematics-0580
+
+# Show quality overview for a subject-grade (by flags)
+oss quality --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5
 ```
 
 Output:

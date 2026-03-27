@@ -68,6 +68,7 @@ oss-bot/
 │   │   ├── translator.go
 │   │   ├── scaffolder.go
 │   │   ├── importer.go              # Document -> curriculum import
+│   │   ├── enrich.go               # Topic YAML enrichment (Level 2 fields: teaching, engagement_hooks)
 │   │   └── merge.go                 # Content merge (append + dedup assessments, additive teaching notes)
 │   ├── validator/                   # Schema validation
 │   │   ├── validator.go             # JSON Schema engine
@@ -129,9 +130,9 @@ go run ./cmd/oss import --pdf <file>                 # Import from PDF (CLI, Go-
 go run ./cmd/oss import --file <file>                # Import from any format (requires Tika)
 go run ./cmd/oss generate teaching-notes <topic-path>
 go run ./cmd/oss generate assessments <topic-path> --count 5 --difficulty medium
-go run ./cmd/oss generate all --syllabus <id> --subject-grade <id>  # Generate all 3 types for every topic
+go run ./cmd/oss generate all --syllabus <id> --subject-grade <id>  # Generate all 4 types for every topic (teaching-notes, assessments, examples, topic enrichment)
 go run ./cmd/oss translate --topic <path> --to <lang>
-go run ./cmd/oss quality <syllabus-path>
+go run ./cmd/oss quality <syllabus-path>                           # Or: --syllabus <id> --subject-grade <id>
 go run ./cmd/oss scaffold syllabus --country india --name JEE
 go run ./cmd/oss scaffold subject --syllabus india-jee --name Chemistry --grade 11
 go run ./cmd/oss import --file textbook.pdf --syllabus india-jee --subject-grade india-jee-chemistry-class-11
@@ -199,6 +200,10 @@ The pipeline executes 6 stages regardless of interface:
 6. **Output** — based on execution mode: write files, open PR, or return preview
 
 If validation fails, the pipeline retries once with error feedback before reporting failure.
+
+**Contribution types:** `teaching_notes`, `assessments`, `examples`, `topic_enrich`
+
+The `topic_enrich` type is special — instead of creating a companion file, it uses AI to generate structured Level 2 quality fields (`teaching.sequence`, `teaching.common_misconceptions`, `engagement_hooks`) and merges them into the existing topic YAML. This is included automatically in `oss generate all`.
 
 ### Provenance Metadata
 All generated content includes provenance tracking:

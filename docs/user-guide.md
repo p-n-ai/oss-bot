@@ -490,14 +490,14 @@ If any check fails, the pipeline retries once with the error feedback injected i
 
 The bot self-assesses every topic's quality on a scale of 0 to 5:
 
-| Level | Name | What it means |
-|-------|------|---------------|
-| 0 | Stub | Topic name only, no content |
-| 1 | Basic | Learning objectives defined |
-| 2 | Structured | Learning objectives + schema-valid structure |
-| 3 | Teachable | Complete teaching notes + assessments |
-| 4 | Complete | Teaching notes + assessments + examples + misconceptions |
-| 5 | Excellent | All of the above + translations + cross-curriculum links |
+| Level | Name | What it means | How to reach |
+|-------|------|---------------|--------------|
+| 0 | Stub | Has `id`, `name`, `learning_objectives` | `oss import` or `oss scaffold` |
+| 1 | Basic | + `prerequisites`, `difficulty`, `bloom_levels` | `oss import` with complete curriculum PDF |
+| 2 | Structured | + `teaching.sequence`, `teaching.common_misconceptions`, `engagement_hooks` | `oss generate all` (topic enrichment step) |
+| 3 | Teachable | + `.teaching.md`, `.assessments.yaml`, `.examples.yaml` companion files | `oss generate all` (teaching notes, assessments, examples) |
+| 4 | Complete | + `translations`, `cross_curriculum` | `oss translate` + manual cross-curriculum links |
+| 5 | Gold | + `authority_validation` | Human educator/authority review |
 
 The quality level is included in the PR description and as a label (e.g., `quality:level-3`), so reviewers can see at a glance what the contribution achieves.
 
@@ -539,5 +539,6 @@ Supported upload formats: PDF, DOCX, PPTX, TXT, PNG, JPG/JPEG
 | Create new curriculum | Select "Add new curriculum" | `@oss-bot scaffold syllabus <path>` | `oss scaffold syllabus --country <c> --name <n>` |
 | Scaffold a new syllabus | Select "Add new syllabus" | `@oss-bot scaffold syllabus <path>` | `oss scaffold syllabus --country <c> --name <n>` |
 | Fix an error | Select topic, choose "Correction" | Edit file, open PR manually | Edit file locally, push PR |
-| Check quality | Automatic during preview | `@oss-bot quality <path>` | `oss quality <path>` |
+| Enrich topic YAML | Automatic in `generate all` | — | Included in `oss generate all` |
+| Check quality | Automatic during preview | `@oss-bot quality <path>` | `oss quality <path>` or `oss quality --syllabus <id> --subject-grade <id>` |
 | Validate content | Automatic during preview | Automatic before PR | `oss validate` |
