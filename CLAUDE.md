@@ -129,6 +129,7 @@ go run ./cmd/oss import --pdf <file>                 # Import from PDF (CLI, Go-
 go run ./cmd/oss import --file <file>                # Import from any format (requires Tika)
 go run ./cmd/oss generate teaching-notes <topic-path>
 go run ./cmd/oss generate assessments <topic-path> --count 5 --difficulty medium
+go run ./cmd/oss generate all --syllabus <id> --subject-grade <id>  # Generate all 3 types for every topic
 go run ./cmd/oss translate --topic <path> --to <lang>
 go run ./cmd/oss quality <syllabus-path>
 go run ./cmd/oss scaffold syllabus --country india --name JEE

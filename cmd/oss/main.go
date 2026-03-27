@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,7 @@ func generateCmd() *cobra.Command {
 	cmd.AddCommand(generateTeachingNotesCmd())
 	cmd.AddCommand(generateAssessmentsCmd())
 	cmd.AddCommand(generateExamplesCmd())
+	cmd.AddCommand(generateAllCmd())
 	return cmd
 }
 
@@ -96,6 +98,175 @@ func generateExamplesCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE:  runGenerate("examples"),
 	}
+}
+
+func generateAllCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "all",
+		Short: "Generate teaching-notes, assessments, and examples for all topics in a subject-grade",
+		Long: `Discover all topic YAML files under a subject-grade directory and generate
+teaching-notes, assessments, and examples for each topic using parallel workers.
+
+Example:
+  oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
+  oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --workers 5
+  oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --dry-run`,
+		RunE: runGenerateAll,
+	}
+	cmd.Flags().String("syllabus", "", "Syllabus ID (required, e.g. malaysia-kssm)")
+	cmd.Flags().String("subject-grade", "", "Subject grade ID (required, e.g. malaysia-kssm-matematik-tingkatan-4)")
+	cmd.Flags().Int("workers", 3, "Number of parallel workers")
+	cmd.Flags().Bool("dry-run", false, "List discovered topics without generating")
+	cmd.MarkFlagRequired("syllabus")
+	cmd.MarkFlagRequired("subject-grade")
+	return cmd
+}
+
+func runGenerateAll(cmd *cobra.Command, _ []string) error {
+	syllabusID, _ := cmd.Flags().GetString("syllabus")
+	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
+	workers, _ := cmd.Flags().GetInt("workers")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	repoPath := os.Getenv("OSS_REPO_PATH")
+	if repoPath == "" {
+		repoPath = "."
+	}
+	promptsDir := os.Getenv("OSS_PROMPTS_DIR")
+	if promptsDir == "" {
+		promptsDir = "prompts/"
+	}
+
+	// Discover topics directory
+	subjectID := subjectBaseID(subjectGradeID)
+	topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectID, syllabusID)
+	if err != nil {
+		return fmt.Errorf("finding topics directory: %w", err)
+	}
+
+	// Discover topic IDs
+	topicIDs, err := discoverTopicIDs(topicsDir)
+	if err != nil {
+		return fmt.Errorf("discovering topics: %w", err)
+	}
+	if len(topicIDs) == 0 {
+		fmt.Println("No topic files found.")
+		return nil
+	}
+
+	fmt.Printf("Found %d topics in %s\n", len(topicIDs), topicsDir)
+	for _, id := range topicIDs {
+		fmt.Printf("  %s\n", id)
+	}
+
+	if dryRun {
+		return nil
+	}
+
+	// Create AI provider
+	provider, err := createAIProvider()
+	if err != nil {
+		return err
+	}
+
+	contentTypes := []string{"teaching_notes", "assessments", "examples"}
+	totalJobs := len(topicIDs) * len(contentTypes)
+	completed := 0
+	var genErrors []string
+
+	// Worker pool
+	type job struct {
+		topicID        string
+		contributionType string
+	}
+	jobs := make(chan job, totalJobs)
+	results := make(chan error, totalJobs)
+
+	for w := 0; w < workers; w++ {
+		go func() {
+			for j := range jobs {
+				p := pipeline.New(provider, &output.LocalWriter{}, promptsDir, repoPath)
+				_, err := p.Execute(context.Background(), pipeline.Request{
+					TopicPath:        j.topicID,
+					ContributionType: j.contributionType,
+					Mode:             pipeline.ModePreview,
+					OutputDir:        repoPath,
+					Source:           "cli",
+				})
+				results <- err
+			}
+		}()
+	}
+
+	// Enqueue jobs
+	for _, topicID := range topicIDs {
+		for _, ct := range contentTypes {
+			jobs <- job{topicID: topicID, contributionType: ct}
+		}
+	}
+	close(jobs)
+
+	// Collect results
+	for i := 0; i < totalJobs; i++ {
+		err := <-results
+		completed++
+		if err != nil {
+			genErrors = append(genErrors, err.Error())
+		}
+		fmt.Printf("\r  Progress: %d/%d", completed, totalJobs)
+	}
+	fmt.Println()
+
+	fmt.Printf("Completed: %d/%d successful\n", totalJobs-len(genErrors), totalJobs)
+	if len(genErrors) > 0 {
+		fmt.Fprintf(os.Stderr, "%d errors:\n", len(genErrors))
+		for _, e := range genErrors {
+			fmt.Fprintf(os.Stderr, "  ⚠ %s\n", e)
+		}
+	}
+	return nil
+}
+
+// discoverTopicIDs reads a topics directory and returns sorted topic IDs
+// from YAML files that contain an `id` field. Excludes supplementary files
+// like .assessments.yaml and .examples.yaml.
+func discoverTopicIDs(topicsDir string) ([]string, error) {
+	entries, err := os.ReadDir(topicsDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var ids []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+		// Skip supplementary files
+		if strings.Contains(name, ".assessments.") || strings.Contains(name, ".examples.") {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(topicsDir, name))
+		if err != nil {
+			continue
+		}
+
+		// Extract id field via simple line scan
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "id:") {
+				id := strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+				if id != "" {
+					ids = append(ids, id)
+				}
+				break
+			}
+		}
+	}
+
+	sort.Strings(ids)
+	return ids, nil
 }
 
 func qualityCmd() *cobra.Command {

@@ -168,6 +168,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
+| `B-W6D26-0` | `oss generate all --subject-grade` — discover all topics under a subject-grade directory and generate teaching-notes, assessments, and examples in parallel using worker pool. Flags: `--subject-grade`, `--workers`, `--dry-run`. Includes `discoverTopicIDs` helper + tests. | 🤖 | ✅ | Post-import batch generation for all 3 content types |
 | `B-W6D26-1` | Scaffold `web/`: Next.js 15 + TypeScript + shadcn/ui + Tailwind | 🤖 | ⬜ | |
 | `B-W6D26-2` | Contribution form: Select curriculum (or create new) → Select topic (or import) → Contribution type → Three input methods: paste URL, type/paste text, or upload file (PDF, DOCX, PPTX, TXT, image) | 🤖 | ⬜ | Updated: supports new curriculum creation |
 | `B-W6D26-3` | `POST /api/preview` — calls shared `pipeline.Execute(ModePreview)`, returns structured YAML. `POST /api/submit` — calls `pipeline.Execute(ModeCreatePR)`. Both delegate to the same pipeline as CLI and Bot. | 🤖 | ⬜ | |

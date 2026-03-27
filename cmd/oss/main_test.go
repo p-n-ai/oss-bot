@@ -397,3 +397,117 @@ func TestParseDSKPTopicLine(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateAllCmdFlags(t *testing.T) {
+	cmd := generateAllCmd()
+
+	// Required flags must be defined
+	if cmd.Flags().Lookup("syllabus") == nil {
+		t.Error("generate all command missing --syllabus flag")
+	}
+	if cmd.Flags().Lookup("subject-grade") == nil {
+		t.Error("generate all command missing --subject-grade flag")
+	}
+	if cmd.Flags().Lookup("workers") == nil {
+		t.Error("generate all command missing --workers flag")
+	}
+	if cmd.Flags().Lookup("dry-run") == nil {
+		t.Error("generate all command missing --dry-run flag")
+	}
+
+	// Defaults
+	workers, err := cmd.Flags().GetInt("workers")
+	if err != nil {
+		t.Fatalf("getting workers flag: %v", err)
+	}
+	if workers != 3 {
+		t.Errorf("workers default = %d, want 3", workers)
+	}
+
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	if err != nil {
+		t.Fatalf("getting dry-run flag: %v", err)
+	}
+	if dryRun != false {
+		t.Error("dry-run default should be false")
+	}
+
+	// Verify Use and Short are set
+	if cmd.Use != "all" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "all")
+	}
+	if cmd.Short == "" {
+		t.Error("generate all command missing Short description")
+	}
+}
+
+func TestGenerateAllRegistered(t *testing.T) {
+	cmd := generateCmd()
+	found := false
+	for _, sub := range cmd.Commands() {
+		if sub.Use == "all" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("'all' subcommand not registered under 'generate'")
+	}
+}
+
+func TestDiscoverTopicIDs(t *testing.T) {
+	// Create a temp directory with topic YAML files
+	dir := t.TempDir()
+
+	// Write topic files with id fields
+	topicFiles := map[string]string{
+		"MT4-01.yaml": "id: MT4-01\nname: Fungsi\n",
+		"MT4-02.yaml": "id: MT4-02\nname: Polinomial\n",
+		"MT4-03.yaml": "id: MT4-03\nname: Statistik\n",
+	}
+	for name, content := range topicFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+
+	// Write files that should be excluded
+	excludeFiles := map[string]string{
+		"MT4-01.assessments.yaml": "assessments:\n  - q1\n",
+		"MT4-01.examples.yaml":    "examples:\n  - e1\n",
+		"README.md":               "# Topics\n",
+		"not-a-topic.yaml":        "something: else\n", // no id field
+	}
+	for name, content := range excludeFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+
+	t.Run("discovers topic IDs sorted", func(t *testing.T) {
+		ids, err := discoverTopicIDs(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"MT4-01", "MT4-02", "MT4-03"}
+		if len(ids) != len(want) {
+			t.Fatalf("got %d IDs, want %d: %v", len(ids), len(want), ids)
+		}
+		for i, id := range ids {
+			if id != want[i] {
+				t.Errorf("ids[%d] = %q, want %q", i, id, want[i])
+			}
+		}
+	})
+
+	t.Run("empty directory returns empty slice", func(t *testing.T) {
+		emptyDir := t.TempDir()
+		ids, err := discoverTopicIDs(emptyDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ids) != 0 {
+			t.Errorf("expected 0 IDs, got %d", len(ids))
+		}
+	})
+}

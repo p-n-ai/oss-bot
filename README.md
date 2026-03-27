@@ -180,9 +180,57 @@ oss generate assessments cambridge/igcse/mathematics-0580/topics/algebra/05-quad
 
 # Generate worked examples
 oss generate examples cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations --count 3
+
+# Generate all content types (teaching-notes, assessments, examples) for every topic in a subject-grade
+oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
+
+# With more parallel workers
+oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --workers 5
+
+# Dry run — list topics that would be processed without generating
+oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --dry-run
 ```
 
 Generated files are written to the local OSS clone. Review them, then commit and PR.
+
+#### Batch Generate (Post-Import)
+
+After importing topics from a PDF, generate all supporting content (teaching notes, assessments, and examples) for every topic in one command:
+
+```bash
+oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
+```
+
+**Flags**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--syllabus` | *(required)* | Syllabus ID — disambiguates when the same subject-grade exists under multiple syllabuses |
+| `--subject-grade` | *(required)* | Subject grade ID, e.g. `malaysia-kssm-matematik-tingkatan-4` |
+| `--workers` | `3` | Number of parallel AI workers |
+| `--dry-run` | `false` | List discovered topics without generating anything |
+
+**Typical workflow:**
+
+```bash
+# 1. Scaffold the subject directory
+oss scaffold subject \
+  --syllabus malaysia-kssm \
+  --id malaysia-kssm-matematik \
+  --grade-id malaysia-kssm-matematik-tingkatan-4 \
+  --country malaysia
+
+# 2. Import topic structure from the curriculum PDF
+oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
+           --syllabus malaysia-kssm \
+           --subject-grade malaysia-kssm-matematik-tingkatan-4
+
+# 3. Generate teaching notes, assessments, and examples for all imported topics
+oss generate all --syllabus malaysia-kssm \
+                 --subject-grade malaysia-kssm-matematik-tingkatan-4
+```
+
+The command discovers all `.yaml` topic files in the subject-grade's `topics/` directory, extracts their IDs, and runs the generation pipeline for each topic in parallel. Progress is reported as each generation completes.
 
 #### Import from PDF
 
