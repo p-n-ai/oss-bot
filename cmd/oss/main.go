@@ -49,12 +49,23 @@ func validateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate [path]",
 		Short: "Validate YAML files against OSS schemas",
-		Long:  `Validate all YAML files in a directory tree against the OSS JSON Schemas.`,
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runValidate,
+		Long: `Validate all YAML files in a directory tree against the OSS JSON Schemas.
+
+You can specify a directory path directly, or use --syllabus and --subject-grade
+flags to resolve the path automatically.
+
+Examples:
+  oss validate
+  oss validate /path/to/topics
+  oss validate --file topic.yaml
+  oss validate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: runValidate,
 	}
 	cmd.Flags().StringP("file", "f", "", "Validate a single file")
 	cmd.Flags().StringP("schema-dir", "s", "", "Path to schema directory (default: auto-detect from OSS repo)")
+	cmd.Flags().String("syllabus", "", "Syllabus ID (e.g. malaysia-kssm)")
+	cmd.Flags().String("subject-grade", "", "Subject grade ID (e.g. malaysia-kssm-matematik-tingkatan-5)")
 	return cmd
 }
 
@@ -345,9 +356,21 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate directory
-	target := repoPath
-	if len(args) > 0 {
+	syllabusID, _ := cmd.Flags().GetString("syllabus")
+	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
+
+	var target string
+	switch {
+	case len(args) > 0:
 		target = args[0]
+	case subjectGradeID != "" || syllabusID != "":
+		dir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectBaseID(subjectGradeID), syllabusID)
+		if err != nil {
+			return err
+		}
+		target = dir
+	default:
+		target = repoPath
 	}
 
 	results, err := v.ValidateDir(target)

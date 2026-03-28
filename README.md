@@ -151,12 +151,25 @@ Check all YAML files against the schemas:
 # Validate entire repository
 oss validate
 
-# Validate a specific syllabus
-oss validate --syllabus cambridge/igcse/mathematics-0580
+# Validate all topics in a subject-grade (by flags)
+oss validate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5
+
+# Validate a specific directory (by path)
+oss validate /path/to/topics
 
 # Validate a single file
-oss validate --file curricula/cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations.yaml
+oss validate --file topic.yaml
 ```
+
+**Flags**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `[path]` | `$OSS_REPO_PATH` or `.` | Positional argument — directory to scan |
+| `--file`, `-f` | | Validate a single file |
+| `--schema-dir`, `-s` | auto-detect | Path to schema directory |
+| `--syllabus` | | Syllabus ID (e.g. `malaysia-kssm`) |
+| `--subject-grade` | | Subject grade ID (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
 
 Output:
 ```
