@@ -3,9 +3,11 @@ package generator
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/p-n-ai/oss-bot/internal/ai"
+	"gopkg.in/yaml.v3"
 )
 
 // LanguageNames maps language codes to full names.
@@ -77,4 +79,63 @@ func supportedLanguages() []string {
 		langs = append(langs, code)
 	}
 	return langs
+}
+
+// WriteTranslationToTopic reads a topic YAML file and adds or updates a
+// translation entry under the "translations" mapping for the given language code.
+func WriteTranslationToTopic(topicFilePath, langCode, translationContent string) error {
+	data, err := os.ReadFile(topicFilePath)
+	if err != nil {
+		return fmt.Errorf("reading topic file: %w", err)
+	}
+
+	var raw yaml.Node
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parsing topic YAML: %w", err)
+	}
+
+	if raw.Kind != yaml.DocumentNode || len(raw.Content) == 0 {
+		return fmt.Errorf("unexpected YAML structure")
+	}
+	mapping := raw.Content[0]
+	if mapping.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected mapping node, got %d", mapping.Kind)
+	}
+
+	// Find or create the "translations" mapping
+	var translationsNode *yaml.Node
+	for i := 0; i < len(mapping.Content)-1; i += 2 {
+		if mapping.Content[i].Value == "translations" {
+			translationsNode = mapping.Content[i+1]
+			break
+		}
+	}
+
+	if translationsNode == nil || translationsNode.Kind != yaml.MappingNode {
+		// Create a new translations mapping node
+		translationsNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		setMappingKey(mapping, "translations", translationsNode)
+	}
+
+	// Build a scalar node for the translation content
+	contentNode := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Value: translationContent,
+		Style: yaml.LiteralStyle, // Use | block scalar for readability
+		Tag:   "!!str",
+	}
+
+	// Set or replace the language entry within translations
+	setMappingKey(translationsNode, langCode, contentNode)
+
+	out, err := yaml.Marshal(&raw)
+	if err != nil {
+		return fmt.Errorf("marshaling updated YAML: %w", err)
+	}
+
+	if err := os.WriteFile(topicFilePath, out, 0o644); err != nil {
+		return fmt.Errorf("writing topic file: %w", err)
+	}
+
+	return nil
 }

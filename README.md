@@ -333,45 +333,64 @@ When `OSS_AI_REASONING_API_KEY` is not set, the standard `OSS_AI_PROVIDER` is us
 #### Translate
 
 ```bash
-# Translate all topics in a syllabus to Malay
-oss translate --syllabus cambridge/igcse/mathematics-0580 --to ms
+# Translate all topics in a subject-grade to English
+oss translate --syllabus malaysia-kssm \
+              --subject-grade malaysia-kssm-matematik-tingkatan-5 \
+              --to en
+
+# With more parallel workers
+oss translate --syllabus malaysia-kssm \
+              --subject-grade malaysia-kssm-matematik-tingkatan-5 \
+              --to en --workers 5
 
 # Translate a single topic
-oss translate --topic cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations --to ar
-
-# Translate with a specific model (better for less-common languages)
-oss translate --topic ... --to hi --model claude-sonnet-4-20250514
+oss translate --topic MT5-01 --to en
 ```
 
-Translations are placed in the `locales/{lang}/` directory, matching the source file structure exactly.
+**Flags**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--topic` | | Topic ID for single-topic translation |
+| `--syllabus` | | Syllabus ID for batch translation (e.g. `malaysia-kssm`) |
+| `--subject-grade` | | Subject grade ID for batch translation (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
+| `--to` | *(required)* | Target language code: `en`, `ms`, `zh`, `ta` |
+| `--workers` | `3` | Number of parallel workers (batch mode only) |
+
+Provide either `--topic` for a single topic, or `--syllabus` and `--subject-grade` for batch translation. Translations are written into each topic YAML under the `translations` field.
 
 #### Analyze Quality
 
 ```bash
-# Show quality overview for a syllabus (by path)
-oss quality cambridge/igcse/mathematics-0580
+# Show quality overview by path
+oss quality /path/to/topics
 
-# Show quality overview for a subject-grade (by flags)
+# Show quality overview by flags
 oss quality --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5
 ```
 
+**Flags**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `[path]` | `$OSS_REPO_PATH` or `.` | Positional argument — directory to scan |
+| `--syllabus` | | Syllabus ID (e.g. `malaysia-kssm`) |
+| `--subject-grade` | | Subject grade ID (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
+
+Provide either a positional path or `--syllabus`/`--subject-grade` flags (the flags resolve the topics directory automatically).
+
 Output:
 ```
-Cambridge IGCSE Mathematics 0580 — Quality Report
+=== Quality Level Report ===
+Level 5 (Gold): 0 topics
+Level 4 (Complete): 0 topics
+Level 3 (Teachable): 5 topics
+Level 2 (Structured): 2 topics
+Level 1 (Basic): 1 topics
+Level 0 (Stub): 0 topics
 
-Topics: 8 total
-  ⭐⭐⭐⭐ Complete (4):   0  (0%)
-  ⭐⭐⭐   Teachable (3):  5  (63%)
-  ⭐⭐     Structured (2): 2  (25%)
-  ⭐       Basic (1):      1  (12%)
-  ⬜       Stub (0):       0  (0%)
-
-Missing for next level:
-  02-linear-equations (Level 2 → 3): needs teaching notes, assessments
-  06-fractions (Level 1 → 2): needs teaching sequence, misconceptions
-
-Translations: 1 language (ms) — 3/8 topics translated
-Cross-curriculum links: 4/8 topics linked to universal concepts
+⚠️  Overclaimed quality levels:
+  MT5-01: claims Level 1, actual Level 0
 ```
 
 #### Scaffold a New Curriculum

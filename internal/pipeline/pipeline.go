@@ -103,7 +103,7 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 	}
 
 	// Strip markdown code fences (```yaml ... ```) that AI models sometimes add.
-	generated.Content = stripCodeFences(generated.Content)
+	generated.Content = StripCodeFences(generated.Content)
 
 	// For topic_enrich, merge the AI output into the existing topic YAML file.
 	if req.ContributionType == "topic_enrich" {
@@ -274,9 +274,9 @@ func buildFilesMap(genCtx *generator.GenerationContext, contribType, content, re
 	return map[string]string{filePath: content}
 }
 
-// stripCodeFences removes markdown code fences (```yaml ... ``` or ```markdown ... ```)
+// StripCodeFences removes markdown code fences (```yaml ... ``` or ```markdown ... ```)
 // that AI models sometimes wrap around generated content.
-func stripCodeFences(s string) string {
+func StripCodeFences(s string) string {
 	s = strings.TrimSpace(s)
 	// Check for opening fence: ```yaml, ```yml, ```markdown, or bare ```
 	if strings.HasPrefix(s, "```") {

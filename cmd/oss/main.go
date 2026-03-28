@@ -293,11 +293,19 @@ func translateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "translate",
 		Short: "Translate topic content to another language",
-		RunE:  runTranslate,
+		Long: `Translate a single topic or all topics in a subject-grade to another language.
+
+Examples:
+  oss translate --topic MT5-01 --to en
+  oss translate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5 --to en
+  oss translate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5 --to en --workers 5`,
+		RunE: runTranslate,
 	}
-	cmd.Flags().String("topic", "", "Topic ID to translate (required)")
-	cmd.Flags().String("to", "", "Target language code: ms, zh, ta (required)")
-	cmd.MarkFlagRequired("topic")
+	cmd.Flags().String("topic", "", "Topic ID to translate (single topic mode)")
+	cmd.Flags().String("to", "", "Target language code: ms, zh, ta, en (required)")
+	cmd.Flags().String("syllabus", "", "Syllabus ID for batch translation (e.g. malaysia-kssm)")
+	cmd.Flags().String("subject-grade", "", "Subject grade ID for batch translation (e.g. malaysia-kssm-matematik-tingkatan-5)")
+	cmd.Flags().Int("workers", 3, "Number of parallel workers (batch mode only)")
 	cmd.MarkFlagRequired("to")
 	return cmd
 }
@@ -442,9 +450,18 @@ func runQuality(cmd *cobra.Command, args []string) error {
 func runTranslate(cmd *cobra.Command, args []string) error {
 	topicID, _ := cmd.Flags().GetString("topic")
 	targetLang, _ := cmd.Flags().GetString("to")
+	syllabusID, _ := cmd.Flags().GetString("syllabus")
+	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
+	workers, _ := cmd.Flags().GetInt("workers")
+
 	repoPath := os.Getenv("OSS_REPO_PATH")
 	if repoPath == "" {
 		repoPath = "."
+	}
+
+	// Validate: either --topic or --syllabus+--subject-grade must be set
+	if topicID == "" && (syllabusID == "" || subjectGradeID == "") {
+		return fmt.Errorf("provide either --topic for single translation, or --syllabus and --subject-grade for batch translation")
 	}
 
 	provider, err := createAIProvider()
@@ -452,17 +469,93 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Single topic mode
+	if topicID != "" {
+		return translateSingleTopic(provider, repoPath, topicID, targetLang)
+	}
+
+	// Batch mode
+	subjectID := subjectBaseID(subjectGradeID)
+	topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectID, syllabusID)
+	if err != nil {
+		return fmt.Errorf("finding topics directory: %w", err)
+	}
+
+	topicIDs, err := discoverTopicIDs(topicsDir)
+	if err != nil {
+		return fmt.Errorf("discovering topics: %w", err)
+	}
+	if len(topicIDs) == 0 {
+		fmt.Println("No topic files found.")
+		return nil
+	}
+
+	fmt.Printf("Translating %d topics to %s\n", len(topicIDs), targetLang)
+
+	// Worker pool
+	jobs := make(chan string, len(topicIDs))
+	results := make(chan error, len(topicIDs))
+
+	for w := 0; w < workers; w++ {
+		go func() {
+			for id := range jobs {
+				results <- translateSingleTopic(provider, repoPath, id, targetLang)
+			}
+		}()
+	}
+
+	for _, id := range topicIDs {
+		jobs <- id
+	}
+	close(jobs)
+
+	completed := 0
+	var translateErrors []string
+	for range topicIDs {
+		err := <-results
+		completed++
+		if err != nil {
+			translateErrors = append(translateErrors, err.Error())
+		}
+		fmt.Printf("\r  Progress: %d/%d", completed, len(topicIDs))
+	}
+	fmt.Println()
+
+	fmt.Printf("Completed: %d/%d successful\n", len(topicIDs)-len(translateErrors), len(topicIDs))
+	if len(translateErrors) > 0 {
+		fmt.Fprintf(os.Stderr, "%d errors:\n", len(translateErrors))
+		for _, e := range translateErrors {
+			fmt.Fprintf(os.Stderr, "  ⚠ %s\n", e)
+		}
+	}
+	return nil
+}
+
+// translateSingleTopic translates a single topic and writes the translation
+// back into the topic YAML file under the translations field.
+func translateSingleTopic(provider ai.Provider, repoPath, topicID, targetLang string) error {
 	genCtx, err := generator.BuildContext(repoPath, topicID)
 	if err != nil {
-		return fmt.Errorf("building context: %w", err)
+		return fmt.Errorf("building context for %s: %w", topicID, err)
 	}
 
 	result, err := generator.Translate(context.Background(), provider, &genCtx.Topic, targetLang)
 	if err != nil {
-		return err
+		return fmt.Errorf("translating %s: %w", topicID, err)
 	}
 
-	fmt.Println(result.Content)
+	// Write translation into topic YAML
+	topicFile, err := generator.FindTopicFile(repoPath, topicID)
+	if err != nil {
+		return fmt.Errorf("finding topic file for %s: %w", topicID, err)
+	}
+
+	translationContent := pipeline.StripCodeFences(result.Content)
+	if err := generator.WriteTranslationToTopic(topicFile, targetLang, translationContent); err != nil {
+		return fmt.Errorf("writing translation for %s: %w", topicID, err)
+	}
+
+	fmt.Printf("  ✓ %s translated to %s\n", topicID, targetLang)
 	return nil
 }
 
