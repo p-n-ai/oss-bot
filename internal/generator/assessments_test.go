@@ -17,7 +17,7 @@ questions:
   - id: Q1
     text: "If x = 3, find 2x + 5"
     difficulty: easy
-    learning_objective: LO1
+    learning_objective: 1.0.1
     tp_level: 3
     kbat: false
     answer:
@@ -44,7 +44,7 @@ questions:
 			SyllabusID: "test-syllabus",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test", Bloom: "apply"},
+				{ID: "1.0.1", Text: "Test", Bloom: "apply"},
 			},
 		},
 	}
@@ -67,7 +67,7 @@ func TestBuildAssessmentsPrompt(t *testing.T) {
 			SyllabusID: "test-syllabus",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test", Bloom: "apply"},
+				{ID: "1.0.1", Text: "Test", Bloom: "apply"},
 			},
 		},
 	}

@@ -140,7 +140,7 @@ country_id: malaysia
 language: ms
 difficulty: beginner
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "..."       # MOE language
     text_en: "..."    # English
     bloom: apply
@@ -485,7 +485,7 @@ subject_id: algebra
 syllabus_id: test-syllabus
 difficulty: beginner
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "Test objective"
     bloom: understand
 quality_level: 1
@@ -1129,20 +1129,20 @@ func TestValidateBloomConsistency(t *testing.T) {
 		{
 			name: "consistent",
 			objectives: []validator.LearningObjective{
-				{ID: "LO1", Bloom: "apply"},
+				{ID: "1.0.1", Bloom: "apply"},
 			},
 			questions: []validator.AssessmentQuestion{
-				{ID: "Q1", LearningObjective: "LO1", Text: "Solve the equation 2x + 3 = 7"},
+				{ID: "Q1", LearningObjective: "1.0.1", Text: "Solve the equation 2x + 3 = 7"},
 			},
 			wantErrors: 0,
 		},
 		{
 			name: "question-exceeds-bloom",
 			objectives: []validator.LearningObjective{
-				{ID: "LO1", Bloom: "remember"},
+				{ID: "1.0.1", Bloom: "remember"},
 			},
 			questions: []validator.AssessmentQuestion{
-				{ID: "Q1", LearningObjective: "LO1", Text: "Evaluate and compare the two approaches"},
+				{ID: "Q1", LearningObjective: "1.0.1", Text: "Evaluate and compare the two approaches"},
 			},
 			wantErrors: 1,
 		},
@@ -2277,7 +2277,7 @@ subject_id: algebra
 syllabus_id: test-syllabus
 difficulty: beginner
 learning_objectives:
-  - id: LO1
+  - id: "1.0.1"
     text: "Test objective"
     bloom: understand
 prerequisites:
@@ -2294,7 +2294,7 @@ subject_id: algebra
 syllabus_id: test-syllabus
 difficulty: beginner
 learning_objectives:
-  - id: LO1
+  - id: "1.0.1"
     text: "Test objective two"
     bloom: apply
 prerequisites:
@@ -2621,7 +2621,7 @@ questions:
   - id: Q1
     text: "Question text. Supports $LaTeX$ notation."
     difficulty: easy
-    learning_objective: LO1
+    learning_objective: "1.0.1"
     answer:
       type: exact
       value: "correct answer"
@@ -2758,7 +2758,7 @@ Start with examples.
 			SyllabusID: "test-syllabus",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test objective", Bloom: "understand"},
+				{ID: "1.0.1", Text: "Test objective", Bloom: "understand"},
 			},
 		},
 	}
@@ -2783,7 +2783,7 @@ func TestBuildTeachingNotesPrompt(t *testing.T) {
 			Name:       "Test Topic",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test", Bloom: "understand"},
+				{ID: "1.0.1", Text: "Test", Bloom: "understand"},
 			},
 		},
 	}
@@ -2916,7 +2916,7 @@ questions:
   - id: Q1
     text: "If x = 3, find 2x + 5"
     difficulty: easy
-    learning_objective: LO1
+    learning_objective: 1.0.1
     answer:
       type: exact
       value: "11"
@@ -2943,7 +2943,7 @@ questions:
 			Name:       "Test Topic",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test", Bloom: "apply"},
+				{ID: "1.0.1", Text: "Test", Bloom: "apply"},
 			},
 		},
 	}
@@ -3030,7 +3030,7 @@ questions:
   - id: Q1
     text: "..."
     difficulty: easy|medium|hard
-    learning_objective: LO1
+    learning_objective: 1.0.1
     answer:
       type: exact|range|multiple_choice|free_text
       value: "..."
@@ -3497,7 +3497,7 @@ Output ONLY the translated YAML (no code fences, no commentary):
 name: "Translated name"
 
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "Translated text"
 ```
 ````
@@ -3524,7 +3524,7 @@ func TestTranslate(t *testing.T) {
 	mockTranslation := `name: "Pemboleh ubah & Ungkapan Algebra"
 
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "Menggunakan huruf untuk mewakili kuantiti yang tidak diketahui"
 `
 
@@ -3535,7 +3535,7 @@ learning_objectives:
 		Name:       "Variables & Algebraic Expressions",
 		Difficulty: "beginner",
 		LearningObjectives: []generator.LearningObjective{
-			{ID: "LO1", Text: "Use letters to represent unknown quantities", Bloom: "remember"},
+			{ID: "1.0.1", Text: "Use letters to represent unknown quantities", Bloom: "remember"},
 		},
 	}
 
@@ -4833,7 +4833,7 @@ subjects:
         name: "Topic Name"
         difficulty: beginner
         learning_objectives:
-          - id: LO1
+          - id: 1.0.1
             text: "..."
             bloom: understand
         prerequisites: []
@@ -5574,7 +5574,7 @@ topics:
     name: "Topic Name"
     difficulty: beginner
     learning_objectives:
-      - id: LO1
+      - id: 1.0.1
         text: "..."
         bloom: understand
     prerequisites: []

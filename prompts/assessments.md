@@ -33,7 +33,7 @@ questions:
   - id: Q1
     text: "Question text. Supports $LaTeX$ notation."
     difficulty: easy          # easy | medium | hard
-    learning_objective: LO1   # Must match a learning objective ID from the topic
+    learning_objective: 1.0.1 # Must match a learning objective ID from the topic
     tp_level: 2               # Performance/mastery level (use syllabus scale)
     kbat: false               # true if higher-order thinking (analyze/evaluate/create)
     answer:
@@ -57,7 +57,7 @@ questions:
   - id: Q2
     text: "Question stem\n\nA) Option A\nB) Option B\nC) Option C\nD) Option D"
     difficulty: medium
-    learning_objective: LO1
+    learning_objective: 1.0.1
     tp_level: 3
     kbat: false
     answer:

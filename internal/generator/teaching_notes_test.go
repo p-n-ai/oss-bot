@@ -51,7 +51,7 @@ Start with examples.
 			SyllabusID: "test-syllabus",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test objective", Bloom: "understand"},
+				{ID: "1.0.1", Text: "Test objective", Bloom: "understand"},
 			},
 		},
 	}
@@ -78,7 +78,7 @@ func TestBuildTeachingNotesPrompt(t *testing.T) {
 			SyllabusID: "test-syllabus",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test", Bloom: "understand"},
+				{ID: "1.0.1", Text: "Test", Bloom: "understand"},
 			},
 		},
 	}

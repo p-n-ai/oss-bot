@@ -57,7 +57,7 @@ subjects:
         name_en: "Topic Name in English"
         difficulty: beginner
         learning_objectives:
-          - id: LO1
+          - id: 1.0.1
             text: "..."
             text_en: "... (English)"
             bloom: understand

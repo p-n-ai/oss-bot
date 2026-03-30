@@ -15,7 +15,7 @@ func TestTranslate(t *testing.T) {
 	mockTranslation := `name: "Pemboleh ubah & Ungkapan Algebra"
 
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "Menggunakan huruf untuk mewakili kuantiti yang tidak diketahui"
 `
 
@@ -27,7 +27,7 @@ learning_objectives:
 		SyllabusID: "test-syllabus",
 		Difficulty: "beginner",
 		LearningObjectives: []generator.LearningObjective{
-			{ID: "LO1", Text: "Use letters to represent unknown quantities", Bloom: "remember"},
+			{ID: "1.0.1", Text: "Use letters to represent unknown quantities", Bloom: "remember"},
 		},
 	}
 
@@ -55,7 +55,7 @@ func TestTranslate_UnsupportedLanguage(t *testing.T) {
 func TestWriteTranslationFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	content := "name: \"Garis Lurus\"\nlearning_objectives:\n  - id: LO1\n    text: \"Menentukan kecerunan\"\n"
+	content := "name: \"Garis Lurus\"\nlearning_objectives:\n  - id: 1.0.1\n    text: \"Menentukan kecerunan\"\n"
 
 	err := generator.WriteTranslationFile(tmpDir, "ms", "MT3-09.yaml", content)
 	if err != nil {
@@ -160,7 +160,7 @@ func TestBuildTranslationPrompt(t *testing.T) {
 		Name:       "Test Topic",
 		SyllabusID: "test-syllabus",
 		LearningObjectives: []generator.LearningObjective{
-			{ID: "LO1", Text: "Test objective", Bloom: "understand"},
+			{ID: "1.0.1", Text: "Test objective", Bloom: "understand"},
 		},
 	}
 

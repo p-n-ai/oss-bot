@@ -34,7 +34,7 @@ worked_examples:
 			SyllabusID: "test-syllabus",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test", Bloom: "apply"},
+				{ID: "1.0.1", Text: "Test", Bloom: "apply"},
 			},
 		},
 	}
@@ -57,7 +57,7 @@ func TestBuildExamplesPrompt(t *testing.T) {
 			SyllabusID: "test-syllabus",
 			Difficulty: "beginner",
 			LearningObjectives: []generator.LearningObjective{
-				{ID: "LO1", Text: "Test", Bloom: "apply"},
+				{ID: "1.0.1", Text: "Test", Bloom: "apply"},
 			},
 		},
 	}

@@ -78,7 +78,7 @@ questions:
   - id: Q1
     text: "..."
     difficulty: easy|medium|hard
-    learning_objective: LO1
+    learning_objective: 1.0.1
     tp_level: 2
     kbat: false
     answer:

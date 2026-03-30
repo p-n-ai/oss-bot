@@ -49,7 +49,7 @@ topics:
     syllabus_id: {{syllabus_id}}
     difficulty: beginner
     learning_objectives:
-      - id: LO1
+      - id: 1.0.1
         text: "..."
         text_en: "... (English)"
         bloom: understand

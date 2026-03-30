@@ -80,24 +80,24 @@ func TestValidateBloomLevels(t *testing.T) {
 		{
 			name: "all valid",
 			objectives: []validator.LearningObjective{
-				{ID: "LO1", Bloom: "understand"},
-				{ID: "LO2", Bloom: "apply"},
-				{ID: "LO3", Bloom: "analyze"},
+				{ID: "1.0.1", Bloom: "understand"},
+				{ID: "2.0.1", Bloom: "apply"},
+				{ID: "3.0.1", Bloom: "analyze"},
 			},
 			wantErrors: 0,
 		},
 		{
 			name: "unrecognised level",
 			objectives: []validator.LearningObjective{
-				{ID: "LO1", Bloom: "understand"},
-				{ID: "LO2", Bloom: "think_hard"}, // not a valid level
+				{ID: "1.0.1", Bloom: "understand"},
+				{ID: "2.0.1", Bloom: "think_hard"}, // not a valid level
 			},
 			wantErrors: 1,
 		},
 		{
 			name: "missing bloom level",
 			objectives: []validator.LearningObjective{
-				{ID: "LO1", Bloom: ""},
+				{ID: "1.0.1", Bloom: ""},
 			},
 			wantErrors: 1,
 		},
@@ -109,9 +109,9 @@ func TestValidateBloomLevels(t *testing.T) {
 		{
 			name: "cross-subject verbs recognised",
 			objectives: []validator.LearningObjective{
-				{ID: "LO1", Bloom: "analyze"}, // used for hypothesize/predict
-				{ID: "LO2", Bloom: "create"},  // used for synthesize
-				{ID: "LO3", Bloom: "evaluate"}, // used for reflect
+				{ID: "1.0.1", Bloom: "analyze"},  // used for hypothesize/predict
+				{ID: "2.0.1", Bloom: "create"},   // used for synthesize
+				{ID: "3.0.1", Bloom: "evaluate"}, // used for reflect
 			},
 			wantErrors: 0,
 		},
@@ -138,20 +138,20 @@ func TestValidateBloomConsistency(t *testing.T) {
 		{
 			name: "consistent",
 			objectives: []validator.LearningObjective{
-				{ID: "LO1", Bloom: "apply"},
+				{ID: "1.0.1", Bloom: "apply"},
 			},
 			questions: []validator.AssessmentQuestion{
-				{ID: "Q1", LearningObjective: "LO1", Text: "Solve the equation 2x + 3 = 7"},
+				{ID: "Q1", LearningObjective: "1.0.1", Text: "Solve the equation 2x + 3 = 7"},
 			},
 			wantErrors: 0,
 		},
 		{
 			name: "question-exceeds-bloom",
 			objectives: []validator.LearningObjective{
-				{ID: "LO1", Bloom: "remember"},
+				{ID: "1.0.1", Bloom: "remember"},
 			},
 			questions: []validator.AssessmentQuestion{
-				{ID: "Q1", LearningObjective: "LO1", Text: "Evaluate and compare the two approaches"},
+				{ID: "Q1", LearningObjective: "1.0.1", Text: "Evaluate and compare the two approaches"},
 			},
 			wantErrors: 1,
 		},

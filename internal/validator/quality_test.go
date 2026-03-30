@@ -90,7 +90,7 @@ func TestTopicInfoFromYAML_DetectsTranslationDir(t *testing.T) {
 name: Garis Lurus
 name_en: Straight Lines
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "Test"
     bloom: apply
 prerequisites: [MT3-08]

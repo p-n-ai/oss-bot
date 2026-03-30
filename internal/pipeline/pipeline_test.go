@@ -218,7 +218,7 @@ subject_id: algebra
 syllabus_id: test-syllabus
 difficulty: beginner
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "An objective"
     bloom: think_hard_about_it
 prerequisites:
@@ -243,7 +243,7 @@ subject_id: algebra
 syllabus_id: test-syllabus
 difficulty: beginner
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "Test objective"
     bloom: understand
 prerequisites:
@@ -270,7 +270,7 @@ subject_id: algebra
 syllabus_id: test-syllabus
 difficulty: beginner
 learning_objectives:
-  - id: LO1
+  - id: 1.0.1
     text: "Test objective"
     bloom: understand
 prerequisites:

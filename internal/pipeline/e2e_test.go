@@ -46,7 +46,7 @@ func TestEndToEnd_FullPipeline(t *testing.T) {
 	}
 
 	// Step 3: Generate assessments via pipeline
-	mock2 := ai.NewMockProvider("topic_id: F1-01\nprovenance: ai-generated\nquestions:\n  - id: Q1\n    text: \"Test question\"\n    difficulty: easy\n    learning_objective: LO1\n    tp_level: 2\n    kbat: false\n    answer:\n      type: exact\n      value: \"42\"\n      working: \"The answer is 42\"\n    marks: 1\n    rubric:\n      - marks: 1\n        criteria: \"Correct answer\"\n    hints:\n      - level: 1\n        text: \"Think about it\"")
+	mock2 := ai.NewMockProvider("topic_id: F1-01\nprovenance: ai-generated\nquestions:\n  - id: Q1\n    text: \"Test question\"\n    difficulty: easy\n    learning_objective: 1.0.1\n    tp_level: 2\n    kbat: false\n    answer:\n      type: exact\n      value: \"42\"\n      working: \"The answer is 42\"\n    marks: 1\n    rubric:\n      - marks: 1\n        criteria: \"Correct answer\"\n    hints:\n      - level: 1\n        text: \"Think about it\"")
 	p2 := pipeline.New(mock2, &output.LocalWriter{}, "prompts/", repoDir)
 
 	result2, err := p2.Execute(context.Background(), pipeline.Request{
@@ -84,7 +84,7 @@ func TestEndToEnd_FullPipeline(t *testing.T) {
 
 	// Step 5: Translate
 	topic := genCtx.Topic
-	mockTranslator := ai.NewMockProvider("name: \"Topik Ujian\"\nlearning_objectives:\n  - id: LO1\n    text: \"Terjemahan objektif\"")
+	mockTranslator := ai.NewMockProvider("name: \"Topik Ujian\"\nlearning_objectives:\n  - id: 1.0.1\n    text: \"Terjemahan objektif\"")
 	translationResult, err := generator.Translate(context.Background(), mockTranslator, &topic, "ms")
 	if err != nil {
 		t.Fatalf("Translate() error = %v", err)
