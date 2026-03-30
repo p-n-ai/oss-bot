@@ -995,6 +995,22 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Printf("Split into %d chunks\n", len(chunks))
 
+	// Filter chunks early when --topic-id is set so we only send the
+	// matching chunk to the AI, avoiding unnecessary processing.
+	if filterTopicID != "" && subjectGradeID != "" {
+		var filtered []parser.Chunk
+		for _, c := range chunks {
+			if topicFileID(subjectGradeID, c.Heading, c.Index) == filterTopicID {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) == 0 {
+			return fmt.Errorf("no chunk matches --topic-id %s (available: %s)", filterTopicID, availableTopicIDs(subjectGradeID, chunks))
+		}
+		fmt.Printf("Filtered to %d chunk(s) matching topic %s\n", len(filtered), filterTopicID)
+		chunks = filtered
+	}
+
 	// 3. Resolve output directory — search for existing subject topics dir
 	// created by scaffold, fall back to a flat output dir.
 	topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectBaseID(subjectGradeID), syllabusID)
@@ -1229,7 +1245,12 @@ func extractDSKPTopics(text string) []dskpTopic {
 			}
 		case line == "TAJUK":
 			saveCurrent()
-			topicLine, ni := nextNonEmpty(i + 1)
+			// Reassemble the topic line after TAJUK.  PDF extraction
+			// often fragments "13.0  KEBARANGKALIAN MUDAH" into separate
+			// lines like "1", "3", ".", "0", "", "KEBARANGKALIAN MUDAH".
+			// We collect short numeric/dot fragments and join them, then
+			// append the first real text line as the topic name.
+			topicLine, ni := reassembleDSKPTopicLine(lines, i+1)
 			if topicLine != "" {
 				number, name := parseDSKPTopicLine(topicLine)
 				currentTopic = &dskpTopic{
@@ -1251,6 +1272,74 @@ func extractDSKPTopics(text string) []dskpTopic {
 	}
 	saveCurrent()
 	return topics
+}
+
+// reassembleDSKPTopicLine collects fragments after a TAJUK marker.
+// PDF extraction often splits "13.0  KEBARANGKALIAN MUDAH" across lines:
+//
+//	"1"
+//	"3"
+//	"."
+//	"0"
+//	""
+//	"KEBARANGKALIAN MUDAH"
+//
+// This function joins short digit/dot fragments into a number token, then
+// appends the first non-fragment line as the topic name.  It returns the
+// reassembled topic line and the index of the first line NOT consumed.
+func reassembleDSKPTopicLine(lines []string, start int) (string, int) {
+	var numParts []string
+	idx := start
+	// Collect short numeric/dot fragments (single chars or small tokens).
+	for idx < len(lines) {
+		s := strings.TrimSpace(lines[idx])
+		if s == "" {
+			idx++
+			continue
+		}
+		// A fragment is a short token (≤3 chars) made of digits and dots.
+		if len(s) <= 3 && isNumericFragment(s) {
+			numParts = append(numParts, s)
+			idx++
+			continue
+		}
+		break
+	}
+
+	// If we collected fragments, join them and look for the name line.
+	if len(numParts) > 0 {
+		number := strings.Join(numParts, "")
+		// Find the next non-empty line for the topic name.
+		for idx < len(lines) {
+			s := strings.TrimSpace(lines[idx])
+			if s == "" {
+				idx++
+				continue
+			}
+			return number + " " + s, idx
+		}
+		return number, idx
+	}
+
+	// No fragments found — fall back to returning the first non-empty line.
+	for idx < len(lines) {
+		s := strings.TrimSpace(lines[idx])
+		if s != "" {
+			return s, idx
+		}
+		idx++
+	}
+	return "", idx
+}
+
+// isNumericFragment returns true if s consists only of digits and dots.
+func isNumericFragment(s string) bool {
+	for _, r := range s {
+		if r != '.' && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // parseDSKPTopicLine splits "1.0 TOPIC NAME" into number ("1.0") and name.
@@ -1283,6 +1372,15 @@ func dskpTopicsToChunks(topics []dskpTopic) []parser.Chunk {
 		}
 	}
 	return chunks
+}
+
+// availableTopicIDs returns a comma-separated list of topic IDs for the given chunks.
+func availableTopicIDs(subjectID string, chunks []parser.Chunk) string {
+	ids := make([]string, len(chunks))
+	for i, c := range chunks {
+		ids[i] = topicFileID(subjectID, c.Heading, c.Index)
+	}
+	return strings.Join(ids, ", ")
 }
 
 // topicFileID derives the canonical OSS topic file ID (e.g. "MT4-01") from

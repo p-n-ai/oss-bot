@@ -398,6 +398,74 @@ func TestParseDSKPTopicLine(t *testing.T) {
 	}
 }
 
+func TestReassembleDSKPTopicLine(t *testing.T) {
+	cases := []struct {
+		name     string
+		lines    []string
+		start    int
+		wantLine string
+	}{
+		{
+			name:     "normal single line",
+			lines:    []string{"TAJUK", "1.0 FUNGSI DAN PERSAMAAN", "content"},
+			start:    1,
+			wantLine: "1.0 FUNGSI DAN PERSAMAAN",
+		},
+		{
+			name:     "fragmented 13.0",
+			lines:    []string{"TAJUK", "1", "3", ".", "0", "", "KEBARANGKALIAN MUDAH", "content"},
+			start:    1,
+			wantLine: "13.0 KEBARANGKALIAN MUDAH",
+		},
+		{
+			name:     "fragmented with spaces",
+			lines:    []string{"TAJUK", " 1 ", " 3 ", " . ", " 0 ", "", " KEBARANGKALIAN MUDAH ", "content"},
+			start:    1,
+			wantLine: "13.0 KEBARANGKALIAN MUDAH",
+		},
+		{
+			name:     "two digit number no fragmentation",
+			lines:    []string{"TAJUK", "13.0 KEBARANGKALIAN MUDAH", "content"},
+			start:    1,
+			wantLine: "13.0 KEBARANGKALIAN MUDAH",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotLine, _ := reassembleDSKPTopicLine(c.lines, c.start)
+			if gotLine != c.wantLine {
+				t.Errorf("got line %q, want %q", gotLine, c.wantLine)
+			}
+		})
+	}
+}
+
+func TestExtractDSKPTopicsFragmentedNumber(t *testing.T) {
+	// Simulates PDF text where "13.0" is split across lines.
+	input := `
+BIDANG PEMBELAJARAN
+STATISTIK DAN KEBARANGKALIAN
+TAJUK
+1
+3
+.
+0
+
+KEBARANGKALIAN MUDAH
+Kandungan kebarangkalian mudah.
+`
+	topics := extractDSKPTopics(input)
+	if len(topics) != 1 {
+		t.Fatalf("expected 1 topic, got %d", len(topics))
+	}
+	if topics[0].Number != "13.0" {
+		t.Errorf("Number = %q, want %q", topics[0].Number, "13.0")
+	}
+	if topics[0].Name != "KEBARANGKALIAN MUDAH" {
+		t.Errorf("Name = %q, want %q", topics[0].Name, "KEBARANGKALIAN MUDAH")
+	}
+}
+
 func TestGenerateAllCmdFlags(t *testing.T) {
 	cmd := generateAllCmd()
 
