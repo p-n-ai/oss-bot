@@ -172,7 +172,11 @@ func DetectSchemaType(path string) string {
 		return "subject_grade"
 	case strings.Contains(path, "subjects/") || strings.Contains(path, "subjects\\"):
 		return "subject"
-	case strings.Contains(path, "topics/") || strings.Contains(path, "topics\\"):
+	case (strings.Contains(path, "topics/") || strings.Contains(path, "topics\\")) &&
+		(strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml")) &&
+		!strings.Contains(base, ".assessments.") &&
+		!strings.Contains(base, ".examples.") &&
+		!strings.Contains(base, ".teaching."):
 		return "topic"
 	case strings.Contains(path, "concepts/"):
 		return "concept"

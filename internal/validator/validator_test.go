@@ -145,6 +145,8 @@ func TestDetectSchemaType(t *testing.T) {
 		{"topic", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/topics/MT3-01.yaml", "topic"},
 		{"assessments", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/topics/MT3-01.assessments.yaml", "assessments"},
 		{"examples", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/topics/MT3-01.examples.yaml", "examples"},
+		{"teaching_md_not_topic", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/topics/MT3-01.teaching.md", ""},
+		{"teaching_yaml_not_topic", "curricula/malaysia/malaysia-kssm/malaysia-kssm-matematik/malaysia-kssm-matematik-tingkatan-3/topics/MT3-01.teaching.yaml", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
