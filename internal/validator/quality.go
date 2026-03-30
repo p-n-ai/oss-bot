@@ -203,9 +203,20 @@ func FormatQualityReport(report QualityReport) string {
 		3: "Teachable", 4: "Complete", 5: "Gold",
 	}
 
+	// Group topic IDs by level
+	levelTopics := make(map[int][]string)
+	for _, t := range report.Topics {
+		levelTopics[t.ActualLevel] = append(levelTopics[t.ActualLevel], t.ID)
+	}
+
 	for level := 5; level >= 0; level-- {
 		count := report.LevelCounts[level]
-		result += fmt.Sprintf("Level %d (%s): %d topics\n", level, levelNames[level], count)
+		if count > 0 && len(levelTopics[level]) > 0 {
+			ids := strings.Join(levelTopics[level], ", ")
+			result += fmt.Sprintf("Level %d (%s): %d topics - %s\n", level, levelNames[level], count, ids)
+		} else {
+			result += fmt.Sprintf("Level %d (%s): %d topics\n", level, levelNames[level], count)
+		}
 	}
 
 	// Flag overclaimed
