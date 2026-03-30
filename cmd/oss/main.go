@@ -58,7 +58,8 @@ Examples:
   oss validate
   oss validate /path/to/topics
   oss validate --file topic.yaml
-  oss validate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5`,
+  oss validate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5
+  oss validate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5 --topic-id MT5-01`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: runValidate,
 	}
@@ -66,6 +67,7 @@ Examples:
 	cmd.Flags().StringP("schema-dir", "s", "", "Path to schema directory (default: auto-detect from OSS repo)")
 	cmd.Flags().String("syllabus", "", "Syllabus ID (e.g. malaysia-kssm)")
 	cmd.Flags().String("subject-grade", "", "Subject grade ID (e.g. malaysia-kssm-matematik-tingkatan-5)")
+	cmd.Flags().String("topic-id", "", "Validate only the specified topic (e.g. MT2-12)")
 	return cmd
 }
 
@@ -126,6 +128,7 @@ Example:
 	}
 	cmd.Flags().String("syllabus", "", "Syllabus ID (required, e.g. malaysia-kssm)")
 	cmd.Flags().String("subject-grade", "", "Subject grade ID (required, e.g. malaysia-kssm-matematik-tingkatan-4)")
+	cmd.Flags().String("topic-id", "", "Generate only for the specified topic (e.g. MT4-01)")
 	cmd.Flags().Int("workers", 3, "Number of parallel workers")
 	cmd.Flags().Bool("dry-run", false, "List discovered topics without generating")
 	cmd.MarkFlagRequired("syllabus")
@@ -136,6 +139,7 @@ Example:
 func runGenerateAll(cmd *cobra.Command, _ []string) error {
 	syllabusID, _ := cmd.Flags().GetString("syllabus")
 	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
+	filterTopicID, _ := cmd.Flags().GetString("topic-id")
 	workers, _ := cmd.Flags().GetInt("workers")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
@@ -160,6 +164,22 @@ func runGenerateAll(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("discovering topics: %w", err)
 	}
+
+	// Filter to a single topic when --topic-id is set
+	if filterTopicID != "" {
+		found := false
+		for _, id := range topicIDs {
+			if id == filterTopicID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("topic %q not found in %s", filterTopicID, topicsDir)
+		}
+		topicIDs = []string{filterTopicID}
+	}
+
 	if len(topicIDs) == 0 {
 		fmt.Println("No topic files found.")
 		return nil
@@ -297,6 +317,7 @@ Examples:
 	}
 	cmd.Flags().String("syllabus", "", "Syllabus ID (e.g. malaysia-kssm)")
 	cmd.Flags().String("subject-grade", "", "Subject grade ID (e.g. malaysia-kssm-matematik-tingkatan-5)")
+	cmd.Flags().String("topic-id", "", "Show quality for only the specified topic (e.g. MT5-01)")
 	return cmd
 }
 
@@ -307,17 +328,19 @@ func translateCmd() *cobra.Command {
 		Long: `Translate a single topic or all topics in a subject-grade to another language.
 
 Examples:
-  oss translate --topic MT5-01 --to en
+  oss translate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5 --topic-id MT5-01 --to en
   oss translate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5 --to en
   oss translate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5 --to en --workers 5`,
 		RunE: runTranslate,
 	}
-	cmd.Flags().String("topic", "", "Topic ID to translate (single topic mode)")
+	cmd.Flags().String("topic-id", "", "Topic ID to translate (e.g. MT5-01) — requires --syllabus and --subject-grade")
 	cmd.Flags().String("to", "", "Target language code: ms, zh, ta, en (required)")
-	cmd.Flags().String("syllabus", "", "Syllabus ID for batch translation (e.g. malaysia-kssm)")
-	cmd.Flags().String("subject-grade", "", "Subject grade ID for batch translation (e.g. malaysia-kssm-matematik-tingkatan-5)")
+	cmd.Flags().String("syllabus", "", "Syllabus ID (e.g. malaysia-kssm)")
+	cmd.Flags().String("subject-grade", "", "Subject grade ID (e.g. malaysia-kssm-matematik-tingkatan-5)")
 	cmd.Flags().Int("workers", 3, "Number of parallel workers (batch mode only)")
 	cmd.MarkFlagRequired("to")
+	cmd.MarkFlagRequired("syllabus")
+	cmd.MarkFlagRequired("subject-grade")
 	return cmd
 }
 
@@ -329,6 +352,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	singleFile, _ := cmd.Flags().GetString("file")
 	schemaDir, _ := cmd.Flags().GetString("schema-dir")
+	topicID, _ := cmd.Flags().GetString("topic-id")
 
 	if schemaDir == "" {
 		schemaDir = filepath.Join(repoPath, "schema")
@@ -337,6 +361,62 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	v, err := validator.New(schemaDir)
 	if err != nil {
 		return fmt.Errorf("initializing validator: %w", err)
+	}
+
+	// Single topic by ID — validates all YAML files for that topic (e.g. MT1-03.yaml,
+	// MT1-03.assessments.yaml, MT1-03.examples.yaml).
+	// Requires --syllabus and --subject-grade to scope the search.
+	if topicID != "" {
+		syllabusID, _ := cmd.Flags().GetString("syllabus")
+		subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
+		if syllabusID == "" || subjectGradeID == "" {
+			return fmt.Errorf("--topic-id requires both --syllabus and --subject-grade flags")
+		}
+		topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectBaseID(subjectGradeID), syllabusID)
+		if err != nil {
+			return fmt.Errorf("finding topics directory: %w", err)
+		}
+
+		// Find all files matching the topic ID prefix (e.g. MT1-03.*)
+		entries, err := os.ReadDir(topicsDir)
+		if err != nil {
+			return fmt.Errorf("reading topics directory: %w", err)
+		}
+		prefix := topicID + "."
+		var topicFiles []string
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) && strings.HasSuffix(e.Name(), ".yaml") {
+				topicFiles = append(topicFiles, filepath.Join(topicsDir, e.Name()))
+			}
+		}
+		if len(topicFiles) == 0 {
+			return fmt.Errorf("no files found for topic %s in %s", topicID, topicsDir)
+		}
+
+		hasErrors := false
+		validated := 0
+		for _, f := range topicFiles {
+			schemaType := validator.DetectSchemaType(f)
+			if schemaType == "" {
+				continue
+			}
+			result, err := v.ValidateFile(f, schemaType)
+			if err != nil {
+				return err
+			}
+			printResult(*result)
+			validated++
+			if !result.Valid {
+				hasErrors = true
+			}
+		}
+
+		if hasErrors {
+			fmt.Fprintf(os.Stderr, "\n❌ Validation failed\n")
+			os.Exit(1)
+		}
+		fmt.Printf("\n✅ All %d files valid for topic %s\n", validated, topicID)
+		return nil
 	}
 
 	if singleFile != "" {
@@ -403,6 +483,42 @@ func runQuality(cmd *cobra.Command, args []string) error {
 
 	syllabusID, _ := cmd.Flags().GetString("syllabus")
 	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
+	filterTopicID, _ := cmd.Flags().GetString("topic-id")
+
+	// Single topic by ID — requires --syllabus and --subject-grade to scope the search
+	if filterTopicID != "" {
+		if syllabusID == "" || subjectGradeID == "" {
+			return fmt.Errorf("--topic-id requires both --syllabus and --subject-grade flags")
+		}
+		topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectBaseID(subjectGradeID), syllabusID)
+		if err != nil {
+			return fmt.Errorf("finding topics directory: %w", err)
+		}
+		topicFile := filepath.Join(topicsDir, filterTopicID+".yaml")
+		if _, statErr := os.Stat(topicFile); statErr != nil {
+			return fmt.Errorf("topic file not found: %s", topicFile)
+		}
+		data, err := os.ReadFile(topicFile)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", topicFile, err)
+		}
+		topicInfo := validator.TopicInfoFromYAML(data, topicFile, filepath.Dir(topicFile))
+		actual := validator.AssessQuality(topicInfo)
+		overclaimed := topicInfo.ClaimedLevel > actual
+
+		report := validator.QualityReport{
+			Topics: []validator.TopicQuality{{
+				ID:           topicInfo.ID,
+				Name:         topicInfo.Name,
+				ActualLevel:  actual,
+				ClaimedLevel: topicInfo.ClaimedLevel,
+				Overclaimed:  overclaimed,
+			}},
+			LevelCounts: map[int]int{actual: 1},
+		}
+		fmt.Print(validator.FormatQualityReport(report))
+		return nil
+	}
 
 	var target string
 	switch {
@@ -471,7 +587,7 @@ func runQuality(cmd *cobra.Command, args []string) error {
 }
 
 func runTranslate(cmd *cobra.Command, args []string) error {
-	topicID, _ := cmd.Flags().GetString("topic")
+	topicID, _ := cmd.Flags().GetString("topic-id")
 	targetLang, _ := cmd.Flags().GetString("to")
 	syllabusID, _ := cmd.Flags().GetString("syllabus")
 	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
@@ -482,14 +598,16 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 		repoPath = "."
 	}
 
-	// Validate: either --topic or --syllabus+--subject-grade must be set
-	if topicID == "" && (syllabusID == "" || subjectGradeID == "") {
-		return fmt.Errorf("provide either --topic for single translation, or --syllabus and --subject-grade for batch translation")
-	}
-
 	provider, err := createAIProvider()
 	if err != nil {
 		return err
+	}
+
+	// Discover topics directory (--syllabus and --subject-grade are always required)
+	subjectID := subjectBaseID(subjectGradeID)
+	topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectID, syllabusID)
+	if err != nil {
+		return fmt.Errorf("finding topics directory: %w", err)
 	}
 
 	// Single topic mode
@@ -498,12 +616,6 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Batch mode
-	subjectID := subjectBaseID(subjectGradeID)
-	topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectID, syllabusID)
-	if err != nil {
-		return fmt.Errorf("finding topics directory: %w", err)
-	}
-
 	topicIDs, err := discoverTopicIDs(topicsDir)
 	if err != nil {
 		return fmt.Errorf("discovering topics: %w", err)
@@ -787,6 +899,7 @@ Example:
 	cmd.Flags().Int("chunk-size", 2000, "Max tokens per chunk (lower = more files, higher = less context loss)")
 	cmd.Flags().Bool("pr", false, "Create a GitHub PR instead of writing to filesystem")
 	cmd.Flags().Bool("force", false, "Overwrite existing topic files instead of AI-merging them")
+	cmd.Flags().String("topic-id", "", "Import only the specified topic (e.g. MT4-01)")
 	cmd.MarkFlagRequired("pdf")
 	cmd.MarkFlagRequired("syllabus")
 	return cmd
@@ -796,10 +909,15 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	pdfPath, _ := cmd.Flags().GetString("pdf")
 	syllabusID, _ := cmd.Flags().GetString("syllabus")
 	subjectGradeID, _ := cmd.Flags().GetString("subject-grade")
+	filterTopicID, _ := cmd.Flags().GetString("topic-id")
 	workers, _ := cmd.Flags().GetInt("workers")
 	chunkSize, _ := cmd.Flags().GetInt("chunk-size")
 	createPR, _ := cmd.Flags().GetBool("pr")
 	force, _ := cmd.Flags().GetBool("force")
+
+	if filterTopicID != "" && subjectGradeID == "" {
+		return fmt.Errorf("--topic-id requires --subject-grade flag")
+	}
 
 	repoPath := os.Getenv("OSS_REPO_PATH")
 	if repoPath == "" {
@@ -898,6 +1016,12 @@ func runImport(cmd *cobra.Command, _ []string) error {
 			}
 			fileID = slug
 		}
+
+		// Skip topics that don't match --topic-id filter
+		if filterTopicID != "" && fileID != filterTopicID {
+			continue
+		}
+
 		outPath := filepath.Join(topicsDir, fileID+".yaml")
 
 		if existingData, readErr := os.ReadFile(outPath); readErr == nil {

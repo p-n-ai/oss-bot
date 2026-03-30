@@ -38,31 +38,7 @@ Install the bot on the [p-n-ai/oss](https://github.com/p-n-ai/oss) repository. M
 
 ### Commands
 
-#### Generate Teaching Notes
-
-```
-@oss-bot add teaching notes for cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations
-```
-
-The bot reads the topic YAML, generates pedagogically-sound teaching notes, and opens a PR.
-
-#### Generate Assessments
-
-```
-@oss-bot add 5 assessments for cambridge/igcse/mathematics-0580/topics/algebra/03-simultaneous-equations difficulty:medium
-```
-
-Generates assessment questions with worked solutions, rubrics, hints, and distractors. Opens a PR.
-
-#### Translate a Topic
-
-```
-@oss-bot translate cambridge/igcse/mathematics-0580/topics/algebra/01-expressions to ms
-```
-
-Generates a Malay translation of the topic, matching the source structure exactly. Opens a PR tagged `needs-native-review`.
-
-#### Scaffold a New Syllabus
+#### Scaffold a New Curriculum
 
 ```
 @oss-bot scaffold syllabus india/cbse/mathematics-class10
@@ -78,7 +54,29 @@ Creates the directory structure, syllabus.yaml, subject files, and topic stubs (
 
 Attach a curriculum document (PDF, DOCX, PPTX, XLSX, or HTML) to the issue. The bot extracts the structure using Apache Tika, maps it to OSS schema, infers Bloom's taxonomy levels from specification verbs, and creates topic stubs. Opens a PR tagged `needs-educator-review`.
 
-#### Check Topic Quality
+#### Generate Content
+
+```
+@oss-bot add teaching notes for cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations
+```
+
+The bot reads the topic YAML, generates pedagogically-sound teaching notes, and opens a PR.
+
+```
+@oss-bot add 5 assessments for cambridge/igcse/mathematics-0580/topics/algebra/03-simultaneous-equations difficulty:medium
+```
+
+Generates assessment questions with worked solutions, rubrics, hints, and distractors. Opens a PR.
+
+#### Translate
+
+```
+@oss-bot translate cambridge/igcse/mathematics-0580/topics/algebra/01-expressions to ms
+```
+
+Generates a Malay translation of the topic, matching the source structure exactly. Opens a PR tagged `needs-native-review`.
+
+#### Analyze Quality
 
 ```
 @oss-bot quality cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations
@@ -143,115 +141,47 @@ export OSS_GITHUB_TOKEN=ghp_...
 
 ### Commands
 
-#### Validate
-
-Check all YAML files against the schemas:
+#### Scaffold a New Curriculum
 
 ```bash
-# Validate entire repository
-oss validate
+# Create a new syllabus for any country
+oss scaffold syllabus --id india-jee --country india
 
-# Validate all topics in a subject-grade (by flags)
-oss validate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5
-
-# Validate a specific directory (by path)
-oss validate /path/to/topics
-
-# Validate a single file
-oss validate --file topic.yaml
-```
-
-**Flags**
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `[path]` | `$OSS_REPO_PATH` or `.` | Positional argument — directory to scan |
-| `--file`, `-f` | | Validate a single file |
-| `--schema-dir`, `-s` | auto-detect | Path to schema directory |
-| `--syllabus` | | Syllabus ID (e.g. `malaysia-kssm`) |
-| `--subject-grade` | | Subject grade ID (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
-
-Output:
-```
-✅ syllabus.yaml — valid
-✅ subjects/algebra.yaml — valid
-✅ topics/algebra/01-expressions.yaml — valid
-❌ topics/algebra/05-quadratic-equations.yaml — missing required field: mastery.minimum_score
-✅ topics/algebra/05-quadratic-equations.assessments.yaml — valid
-
-4/5 files valid. 1 error.
-```
-
-#### Generate Content
-
-```bash
-# Generate teaching notes for a topic
-oss generate teaching-notes cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations
-
-# Generate assessment questions
-oss generate assessments cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations --count 5 --difficulty medium
-
-# Generate worked examples
-oss generate examples cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations --count 3
-
-# Generate all content types (teaching-notes, assessments, examples, topic enrichment) for every topic in a subject-grade
-oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
-
-# With more parallel workers
-oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --workers 5
-
-# Dry run — list topics that would be processed without generating
-oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --dry-run
-```
-
-Generated files are written to the local OSS clone. Review them, then commit and PR.
-
-#### Batch Generate (Post-Import)
-
-After importing topics from a PDF, generate all supporting content (teaching notes, assessments, examples, and topic enrichment) for every topic in one command:
-
-```bash
-oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
-```
-
-**Flags**
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--syllabus` | *(required)* | Syllabus ID — disambiguates when the same subject-grade exists under multiple syllabuses |
-| `--subject-grade` | *(required)* | Subject grade ID, e.g. `malaysia-kssm-matematik-tingkatan-4` |
-| `--workers` | `3` | Number of parallel AI workers |
-| `--dry-run` | `false` | List discovered topics without generating anything |
-
-**Typical workflow:**
-
-```bash
-# 1. Scaffold the subject directory
+# Create a new subject + subject_grade within a syllabus
 oss scaffold subject \
   --syllabus malaysia-kssm \
   --id malaysia-kssm-matematik \
-  --grade-id malaysia-kssm-matematik-tingkatan-4 \
+  --grade-id malaysia-kssm-matematik-tingkatan-3 \
   --country malaysia
-
-# 2. Import topic structure from the curriculum PDF
-oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
-           --syllabus malaysia-kssm \
-           --subject-grade malaysia-kssm-matematik-tingkatan-4
-
-# 3. Generate teaching notes, assessments, examples, and enrich topic YAML for all imported topics
-oss generate all --syllabus malaysia-kssm \
-                 --subject-grade malaysia-kssm-matematik-tingkatan-4
 ```
 
-The command discovers all `.yaml` topic files in the subject-grade's `topics/` directory, extracts their IDs, and runs the generation pipeline for each topic in parallel. For each topic, it generates 4 content types:
-1. **Teaching notes** (`.teaching.md`) — pedagogical guide for educators
-2. **Assessments** (`.assessments.yaml`) — questions with rubrics and hints
-3. **Examples** (`.examples.yaml`) — worked examples at varying difficulty
-4. **Topic enrichment** — adds structured Level 2 fields (`teaching.sequence`, `teaching.common_misconceptions`, `engagement_hooks`) into the topic YAML to advance quality from Level 1 to Level 3
+The `scaffold subject` command creates the three-level directory structure:
 
-Progress is reported as each generation completes.
+```
+curricula/malaysia/malaysia-kssm/
+└── malaysia-kssm-matematik/                         # subject (grade-less)
+    ├── subject.yaml                                 # id: malaysia-kssm-matematik
+    └── malaysia-kssm-matematik-tingkatan-3/         # subject_grade (with grade)
+        ├── subject-grade.yaml                    # id: malaysia-kssm-matematik-tingkatan-3
+        └── topics/
+            ├── MT3-01.yaml
+            ├── MT3-02.yaml
+            └── ...
+```
 
-#### Import from PDF
+**Flags**
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--syllabus` | Yes | Syllabus ID, e.g. `malaysia-kssm` |
+| `--id` | Yes | Subject ID — grade-less, e.g. `malaysia-kssm-matematik` |
+| `--grade-id` | No | Subject grade ID — with grade, e.g. `malaysia-kssm-matematik-tingkatan-3`. If omitted, defaults to `--id` (for grade-less syllabi like IGCSE) |
+| `--country` | No | Country code, e.g. `malaysia` |
+| `--from-file` | No | Path to subject document for AI-assisted topic extraction |
+
+See [ID conventions](docs/id-conventions.md) for the full naming rules.
+
+#### Import from Document
 
 Extract curriculum topics from a PDF and generate structured OSS YAML files.
 
@@ -270,6 +200,7 @@ oss import --pdf <file> --syllabus <id> [flags]
 | `--chunk-size` | `2000` | Max tokens per chunk for the generic chunker. Lower values force more splits on dense documents |
 | `--force` | `false` | **Replace** existing topic files outright. Default (`false`) AI-merges new content into the existing file without losing any objectives |
 | `--pr` | `false` | Create a GitHub PR instead of writing files to the local filesystem |
+| `--topic-id` | | Import only the specified topic (e.g. `MT4-01`) — requires `--subject-grade` |
 
 **Examples**
 
@@ -343,6 +274,76 @@ Processed 10/10 chunks in 45s — wrote 10 new, merged 0 existing file(s)
 
 When `OSS_AI_REASONING_API_KEY` is not set, the standard `OSS_AI_PROVIDER` is used as a transparent fallback.
 
+#### Generate Content
+
+```bash
+# Generate teaching notes for a topic
+oss generate teaching-notes cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations
+
+# Generate assessment questions
+oss generate assessments cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations --count 5 --difficulty medium
+
+# Generate worked examples
+oss generate examples cambridge/igcse/mathematics-0580/topics/algebra/05-quadratic-equations --count 3
+
+# Generate all content types (teaching-notes, assessments, examples, topic enrichment) for every topic in a subject-grade
+oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
+
+# With more parallel workers
+oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --workers 5
+
+# Dry run — list topics that would be processed without generating
+oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --dry-run
+```
+
+Generated files are written to the local OSS clone. Review them, then commit and PR.
+
+**Batch Generate (Post-Import)**
+
+After importing topics from a PDF, generate all supporting content (teaching notes, assessments, examples, and topic enrichment) for every topic in one command:
+
+```bash
+oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4
+```
+
+**Flags**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--syllabus` | *(required)* | Syllabus ID — disambiguates when the same subject-grade exists under multiple syllabuses |
+| `--subject-grade` | *(required)* | Subject grade ID, e.g. `malaysia-kssm-matematik-tingkatan-4` |
+| `--topic-id` | | Generate only for the specified topic (e.g. `MT4-01`) — requires `--syllabus` and `--subject-grade` |
+| `--workers` | `3` | Number of parallel AI workers |
+| `--dry-run` | `false` | List discovered topics without generating anything |
+
+**Typical workflow:**
+
+```bash
+# 1. Scaffold the subject directory
+oss scaffold subject \
+  --syllabus malaysia-kssm \
+  --id malaysia-kssm-matematik \
+  --grade-id malaysia-kssm-matematik-tingkatan-4 \
+  --country malaysia
+
+# 2. Import topic structure from the curriculum PDF
+oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
+           --syllabus malaysia-kssm \
+           --subject-grade malaysia-kssm-matematik-tingkatan-4
+
+# 3. Generate teaching notes, assessments, examples, and enrich topic YAML for all imported topics
+oss generate all --syllabus malaysia-kssm \
+                 --subject-grade malaysia-kssm-matematik-tingkatan-4
+```
+
+The command discovers all `.yaml` topic files in the subject-grade's `topics/` directory, extracts their IDs, and runs the generation pipeline for each topic in parallel. For each topic, it generates 4 content types:
+1. **Teaching notes** (`.teaching.md`) — pedagogical guide for educators
+2. **Assessments** (`.assessments.yaml`) — questions with rubrics and hints
+3. **Examples** (`.examples.yaml`) — worked examples at varying difficulty
+4. **Topic enrichment** — adds structured Level 2 fields (`teaching.sequence`, `teaching.common_misconceptions`, `engagement_hooks`) into the topic YAML to advance quality from Level 1 to Level 3
+
+Progress is reported as each generation completes.
+
 #### Translate
 
 ```bash
@@ -357,20 +358,22 @@ oss translate --syllabus malaysia-kssm \
               --to en --workers 5
 
 # Translate a single topic
-oss translate --topic MT5-01 --to en
+oss translate --syllabus malaysia-kssm \
+              --subject-grade malaysia-kssm-matematik-tingkatan-5 \
+              --topic-id MT5-01 --to en
 ```
 
 **Flags**
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--topic` | | Topic ID for single-topic translation |
-| `--syllabus` | | Syllabus ID for batch translation (e.g. `malaysia-kssm`) |
-| `--subject-grade` | | Subject grade ID for batch translation (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
+| `--syllabus` | *(required)* | Syllabus ID (e.g. `malaysia-kssm`) |
+| `--subject-grade` | *(required)* | Subject grade ID (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
+| `--topic-id` | | Topic ID for single-topic translation (e.g. `MT5-01`) |
 | `--to` | *(required)* | Target language code: `en`, `ms`, `zh`, `ta` |
 | `--workers` | `3` | Number of parallel workers (batch mode only) |
 
-Provide either `--topic` for a single topic, or `--syllabus` and `--subject-grade` for batch translation. Translations are written into each topic YAML under the `translations` field.
+`--syllabus` and `--subject-grade` are always required. Add `--topic-id` to translate a single topic, or omit it to translate all topics in the subject-grade. Translations are written into each topic YAML under the `translations` field.
 
 #### Analyze Quality
 
@@ -380,6 +383,9 @@ oss quality /path/to/topics
 
 # Show quality overview by flags
 oss quality --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5
+
+# Show quality for a specific topic
+oss quality --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5 --topic-id MT5-01
 ```
 
 **Flags**
@@ -389,8 +395,9 @@ oss quality --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tin
 | `[path]` | `$OSS_REPO_PATH` or `.` | Positional argument — directory to scan |
 | `--syllabus` | | Syllabus ID (e.g. `malaysia-kssm`) |
 | `--subject-grade` | | Subject grade ID (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
+| `--topic-id` | | Show quality for only the specified topic (e.g. `MT5-01`) — requires `--syllabus` and `--subject-grade` |
 
-Provide either a positional path or `--syllabus`/`--subject-grade` flags (the flags resolve the topics directory automatically).
+Provide either a positional path, `--syllabus`/`--subject-grade` flags, or `--topic-id` to target a specific topic.
 
 Output:
 ```
@@ -406,47 +413,65 @@ Level 0 (Stub): 0 topics
   MT5-01: claims Level 1, actual Level 0
 ```
 
-#### Scaffold a New Curriculum
+**Quality Levels**
+
+Every topic in OSS is assigned a quality level from 0 (Stub) to 5 (Gold). Levels are cumulative — a topic must satisfy **all** requirements of the previous level before it can reach the next. Missing even one required field drops the topic to the previous level.
+
+| Level | Name | Requirements | How to reach |
+|-------|------|-------------|--------------|
+| **0** | Stub | `id`, `name`, `learning_objectives` (non-empty) | `oss scaffold` or `oss import` |
+| **1** | Basic | Level 0 + `prerequisites`, `difficulty`, `bloom_levels` on objectives | `oss import` with a complete curriculum PDF |
+| **2** | Structured | Level 1 + `teaching.sequence`, `teaching.common_misconceptions`, `engagement_hooks` | `oss generate all` (topic enrichment step) |
+| **3** | Teachable | Level 2 + companion files: `.teaching.md`, `.assessments.yaml`, `.examples.yaml` | `oss generate all` (teaching notes, assessments, examples) |
+| **4** | Complete | Level 3 + `translations`, `cross_curriculum` | `oss translate` + manual cross-curriculum links |
+| **5** | Gold | Level 4 + `authority_validation` by an educator or curriculum authority | Human educator/authority review |
+
+A topic's YAML may **claim** a quality level via the `quality_level` field, but the actual level is independently calculated. If the claimed level exceeds the actual level, the quality report flags it as overclaimed.
+
+#### Validate
+
+Check all YAML files against the schemas:
 
 ```bash
-# Create a new syllabus for any country
-oss scaffold syllabus --id india-jee --country india
+# Validate entire repository
+oss validate
 
-# Create a new subject + subject_grade within a syllabus
-oss scaffold subject \
-  --syllabus malaysia-kssm \
-  --id malaysia-kssm-matematik \
-  --grade-id malaysia-kssm-matematik-tingkatan-3 \
-  --country malaysia
-```
+# Validate all topics in a subject-grade (by flags)
+oss validate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5
 
-The `scaffold subject` command creates the three-level directory structure:
+# Validate a specific topic
+oss validate --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-5 --topic-id MT5-01
 
-```
-curricula/malaysia/malaysia-kssm/
-└── malaysia-kssm-matematik/                         # subject (grade-less)
-    ├── subject.yaml                                 # id: malaysia-kssm-matematik
-    └── malaysia-kssm-matematik-tingkatan-3/         # subject_grade (with grade)
-        ├── subject-grade.yaml                    # id: malaysia-kssm-matematik-tingkatan-3
-        └── topics/
-            ├── MT3-01.yaml
-            ├── MT3-02.yaml
-            └── ...
+# Validate a specific directory (by path)
+oss validate /path/to/topics
+
+# Validate a single file
+oss validate --file topic.yaml
 ```
 
 **Flags**
 
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--syllabus` | Yes | Syllabus ID, e.g. `malaysia-kssm` |
-| `--id` | Yes | Subject ID — grade-less, e.g. `malaysia-kssm-matematik` |
-| `--grade-id` | No | Subject grade ID — with grade, e.g. `malaysia-kssm-matematik-tingkatan-3`. If omitted, defaults to `--id` (for grade-less syllabi like IGCSE) |
-| `--country` | No | Country code, e.g. `malaysia` |
-| `--from-file` | No | Path to subject document for AI-assisted topic extraction |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `[path]` | `$OSS_REPO_PATH` or `.` | Positional argument — directory to scan |
+| `--file`, `-f` | | Validate a single file |
+| `--schema-dir`, `-s` | auto-detect | Path to schema directory |
+| `--syllabus` | | Syllabus ID (e.g. `malaysia-kssm`) |
+| `--subject-grade` | | Subject grade ID (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
+| `--topic-id` | | Validate only the specified topic (e.g. `MT2-12`) — requires `--syllabus` and `--subject-grade` |
 
-See [ID conventions](docs/id-conventions.md) for the full naming rules.
+Output:
+```
+✅ syllabus.yaml — valid
+✅ subjects/algebra.yaml — valid
+✅ topics/algebra/01-expressions.yaml — valid
+❌ topics/algebra/05-quadratic-equations.yaml — missing required field: mastery.minimum_score
+✅ topics/algebra/05-quadratic-equations.assessments.yaml — valid
 
-#### Contribute via CLI
+4/5 files valid. 1 error.
+```
+
+#### Enrich from Classroom Experience
 
 ```bash
 # Add a contribution in natural language
