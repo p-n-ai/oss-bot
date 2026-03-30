@@ -80,7 +80,7 @@ questions:
 - Distribute questions across available learning objectives
 - Difficulty spread: mix of easy, medium, hard per {{target_difficulty}}
 - Follow the exam format and conventions of the {{syllabus_id}} curriculum
-- Include LaTeX for mathematical notation ($...$)
+- Include LaTeX for mathematical notation ($...$). IMPORTANT: use single quotes (not double quotes) for any YAML string containing backslashes or LaTeX, e.g. `text: 'Solve $\sqrt{x}$'` — double-quoted strings process escape sequences (\t → tab, \n → newline) which corrupts LaTeX
 - Each question must test a single concept clearly
 - Include `tp_level` matching the syllabus performance/mastery scale
 - Set `kbat: true` for questions at analyze/evaluate/create Bloom's levels

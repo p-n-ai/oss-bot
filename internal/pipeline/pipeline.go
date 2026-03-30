@@ -107,6 +107,15 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 	// Strip markdown code fences (```yaml ... ```) that AI models sometimes add.
 	generated.Content = StripCodeFences(generated.Content)
 
+	// Fix double-quoted YAML strings containing LaTeX backslash sequences
+	// (e.g. \text, \sqrt, \frac) that would be corrupted by YAML escape processing.
+	if req.ContributionType == "assessments" || req.ContributionType == "examples" {
+		generated.Content = SanitizeYAMLQuoting(generated.Content)
+		for k, v := range generated.Files {
+			generated.Files[k] = SanitizeYAMLQuoting(v)
+		}
+	}
+
 	// For topic_enrich, merge the AI output into the existing topic YAML file.
 	if req.ContributionType == "topic_enrich" {
 		topicFile, err := generator.FindTopicFile(p.repoPath, req.TopicPath)

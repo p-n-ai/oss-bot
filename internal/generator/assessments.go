@@ -60,7 +60,7 @@ func BuildAssessmentsPrompt(genCtx *GenerationContext, count int, difficulty str
 - Each question must include: worked solution, rubric with partial marks, progressive hints
 - Distribute across learning objectives
 - Follow the exam format and conventions of the %s curriculum
-- Support LaTeX via $...$ notation
+- Support LaTeX via $...$ notation. IMPORTANT: use single quotes (not double quotes) for any YAML string containing backslashes or LaTeX, e.g. text: 'Solve $\sqrt{x}$' — double-quoted strings process escape sequences (\t → tab, \n → newline) which corrupts LaTeX
 - Include tp_level (performance/mastery level from the syllabus scale)
 - Set kbat: true for questions at analyze/evaluate/create Bloom's levels
 - Use a mix of answer types: exact, multiple_choice, free_text

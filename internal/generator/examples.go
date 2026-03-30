@@ -61,6 +61,7 @@ func BuildExamplesPrompt(genCtx *GenerationContext) string {
 - Working must be broken into clearly numbered steps
 - Use real-world scenarios relevant to the %s curriculum context
 - Each example should target different learning objectives where possible
+- IMPORTANT: use single quotes (not double quotes) for any YAML string containing backslashes or LaTeX, e.g. scenario: 'Find $\sqrt{x}$' — double-quoted strings process escape sequences (\t → tab, \n → newline) which corrupts LaTeX
 
 ## Output Format
 Output ONLY valid YAML (no markdown code fences):

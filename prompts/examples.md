@@ -45,4 +45,4 @@ worked_examples:
 - Use real-world scenarios relevant to the curriculum's local context
 - Working must be broken into clearly numbered steps with explanations
 - The misconception_alert should describe a REAL student error pattern
-- Use $LaTeX$ notation for mathematical expressions
+- Use $LaTeX$ notation for mathematical expressions. IMPORTANT: use single quotes (not double quotes) for any YAML string containing backslashes or LaTeX, e.g. `scenario: 'Find $\sqrt{x}$'` — double-quoted strings process escape sequences (\t → tab, \n → newline) which corrupts LaTeX

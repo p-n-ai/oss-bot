@@ -404,6 +404,9 @@ RULES:
 
 	content := StripCodeFences(resp.Content)
 
+	// Fix double-quoted YAML strings containing LaTeX backslash sequences.
+	content = SanitizeYAMLQuoting(content)
+
 	// Post-process: ensure mastery, ai_teaching_notes, and assessments_file
 	// fields are present. AI models often drop these from their output even
 	// when they appear in the prompt template.

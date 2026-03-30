@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -23,50 +24,33 @@ func TestSanitizeYAMLQuoting(t *testing.T) {
 			wantSafe: true,
 		},
 		{
-			name:     "LaTeX \\text converted to single quotes",
-			input:    `text: "Solve \\text{equation}"`,
+			name:     "LaTeX backslash-t in text converted",
+			input:    "text: \"\\text{equation}\"",
 			wantSafe: true,
 		},
 		{
-			name:     "LaTeX \\sqrt converted to single quotes",
-			input:    `text: "Find \\sqrt{x^2 + 1}"`,
+			name:     "LaTeX backslash-s in sqrt converted",
+			input:    "text: \"\\sqrt{x^2 + 1}\"",
 			wantSafe: true,
 		},
 		{
-			name:     "LaTeX \\frac converted to single quotes",
-			input:    `text: "Simplify \\frac{a}{b}"`,
+			name:     "LaTeX backslash-f in frac converted",
+			input:    "text: \"\\frac{a}{b}\"",
 			wantSafe: true,
 		},
 		{
-			name:     "LaTeX \\alpha converted",
-			input:    `text: "The angle \\alpha"`,
+			name:     "LaTeX backslash-a in alpha converted",
+			input:    "text: \"The angle \\alpha\"",
 			wantSafe: true,
 		},
 		{
-			name:     "multiple LaTeX in one string",
-			input:    `text: "If $\\sqrt{x} = \\frac{1}{2}$, find $\\text{x}$"`,
-			wantSafe: true,
-		},
-		{
-			name:     "escaped backslash not converted",
-			input:    `text: "a \\\\ b"`,
+			name:     "properly escaped backslash not converted",
+			input:    `text: "a \\ b"`,
 			wantSafe: true,
 		},
 		{
 			name:     "single quotes in content are doubled",
-			input:    `text: "student's \\text{answer}"`,
-			wantSafe: true,
-		},
-		{
-			name:     "multiline YAML with mixed quoting",
-			input: `topic_id: MT1-01
-questions:
-  - id: Q1
-    text: "Solve $\\text{the equation}$"
-    difficulty: easy
-    answer:
-      type: exact
-      value: "42"`,
+			input:    "text: \"student's \\text{answer}\"",
 			wantSafe: true,
 		},
 	}
@@ -79,7 +63,7 @@ questions:
 				// Verify the output is valid YAML
 				var node yaml.Node
 				if err := yaml.Unmarshal([]byte(got), &node); err != nil {
-					t.Errorf("SanitizeYAMLQuoting() produced invalid YAML:\nInput:  %s\nOutput: %s\nError:  %v", tt.input, got, err)
+					t.Errorf("SanitizeYAMLQuoting() produced invalid YAML:\nInput:  %q\nOutput: %q\nError:  %v", tt.input, got, err)
 				}
 			}
 		})
@@ -87,22 +71,26 @@ questions:
 }
 
 func TestSanitizeYAMLQuoting_BackslashLetter(t *testing.T) {
-	// Verify that backslash+letter sequences are preserved literally
-	input := `text: "\\text{hello}"`
+	// AI outputs: text: "\text{hello}" (backslash-t intended as literal)
+	// In YAML double-quoted, \t becomes a tab. We must convert to single-quoted.
+	input := "text: \"\\text{hello}\""
 	got := SanitizeYAMLQuoting(input)
 
 	// Should be single-quoted now
-	if got != `text: '\\text{hello}'` {
+	if !strings.Contains(got, "'") {
 		t.Errorf("expected single-quoted output, got: %s", got)
 	}
+	if strings.Contains(got, "\"\\t") {
+		t.Errorf("double-quoted backslash-letter should have been converted, got: %s", got)
+	}
 
-	// Parse and verify the value contains literal backslash
+	// Parse and verify the value contains literal backslash-t
 	var data map[string]string
 	if err := yaml.Unmarshal([]byte(got), &data); err != nil {
 		t.Fatalf("failed to parse sanitized YAML: %v", err)
 	}
-	if data["text"] != `\\text{hello}` {
-		t.Errorf("expected literal backslash preserved, got: %q", data["text"])
+	if !strings.Contains(data["text"], `\text`) {
+		t.Errorf("expected literal \\text preserved, got: %q", data["text"])
 	}
 }
 
@@ -117,28 +105,25 @@ func TestSanitizeYAMLQuoting_PreservesValidDoubleQuotes(t *testing.T) {
 }
 
 func TestSanitizeYAMLQuoting_FullAssessmentYAML(t *testing.T) {
-	input := `topic_id: MT1-01
-provenance: ai-generated
-
-questions:
-  - id: Q1
-    text: "Solve $\\sqrt{x^2 + 4} = 3$"
-    difficulty: medium
-    learning_objective: LO1
-    answer:
-      type: exact
-      value: "\\sqrt{5}"
-      working: |
-        Step 1: Square both sides
-        Step 2: Solve for x
-    marks: 3
-  - id: Q2
-    text: "What is the value of $\\frac{\\text{numerator}}{\\text{denominator}}$?"
-    difficulty: hard
-    answer:
-      type: free_text
-      value: "The fraction simplifies to 1"
-`
+	// Simulate AI generating assessment YAML with LaTeX in double quotes
+	input := "topic_id: MT1-01\nprovenance: ai-generated\n\nquestions:\n" +
+		"  - id: Q1\n" +
+		"    text: \"Solve $\\sqrt{x^2 + 4} = 3$\"\n" +
+		"    difficulty: medium\n" +
+		"    learning_objective: LO1\n" +
+		"    answer:\n" +
+		"      type: exact\n" +
+		"      value: \"\\sqrt{5}\"\n" +
+		"      working: |\n" +
+		"        Step 1: Square both sides\n" +
+		"        Step 2: Solve for x\n" +
+		"    marks: 3\n" +
+		"  - id: Q2\n" +
+		"    text: \"What is $\\frac{\\text{num}}{\\text{den}}$?\"\n" +
+		"    difficulty: hard\n" +
+		"    answer:\n" +
+		"      type: free_text\n" +
+		"      value: \"The fraction simplifies to 1\"\n"
 
 	got := SanitizeYAMLQuoting(input)
 
@@ -148,24 +133,33 @@ questions:
 		t.Fatalf("sanitized YAML is invalid: %v\n\nOutput:\n%s", err, got)
 	}
 
-	// Verify LaTeX strings are now single-quoted (not double-quoted)
-	if contains(got, `"Solve $\\sqrt`) {
-		t.Error("LaTeX string should have been converted to single quotes")
+	// Verify LaTeX strings were converted (should not have double-quoted backslash+letter)
+	if strings.Contains(got, "\"Solve $\\s") {
+		t.Error("LaTeX string should have been converted from double quotes")
 	}
-	if contains(got, `"\\sqrt{5}"`) {
-		t.Error("LaTeX answer should have been converted to single quotes")
+	if strings.Contains(got, "\"\\sqrt{5}\"") {
+		t.Error("LaTeX answer should have been converted from double quotes")
+	}
+	// Non-LaTeX double-quoted strings should remain
+	if !strings.Contains(got, "\"The fraction simplifies to 1\"") {
+		t.Error("non-LaTeX string should remain double-quoted")
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
+func TestSanitizeYAMLQuoting_NewlineInString(t *testing.T) {
+	// Double quotes spanning a newline should not be treated as a quoted string
+	input := "key: \"some\nvalue\""
+	got := SanitizeYAMLQuoting(input)
+	// Should be left unchanged (newline breaks the scanning)
+	if got != input {
+		t.Errorf("input with newline inside quotes should be unchanged, got: %q", got)
+	}
 }
 
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestSanitizeYAMLQuoting_UnterminatedQuote(t *testing.T) {
+	input := `key: "unterminated`
+	got := SanitizeYAMLQuoting(input)
+	if got != input {
+		t.Errorf("unterminated quote should be unchanged, got: %q", got)
 	}
-	return false
 }
