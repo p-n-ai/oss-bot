@@ -43,7 +43,7 @@ For countries not listed, use the primary language of instruction as declared by
 | Subject | `{syllabus}-{subject}` | `malaysia-kssm-matematik`, `india-cbse-physics` |
 | Subject Grade | `{subject_id}-{grade}` | `malaysia-kssm-matematik-tingkatan-1` |
 | Topic | `{PREFIX}{grade_num}-{NN}` | `MT1-01`, `SA2-03`, `PHY12-01` |
-| Learning Objective | `{official_code}` or `LO{N}` | `5.1.1`, `9.2.3`, `LO1` |
+| Learning Objective | `{official_code}` or `{section.subsection.item}` (SemVer) | `5.1.1`, `9.2.3`, `1.0.0` |
 | Assessment Question | `Q{N}` | `Q1`, `Q5` |
 | Worked Example | `WE-{NN}` | `WE-01`, `WE-12` |
 
@@ -369,7 +369,7 @@ country_id: malaysia
 language: ms
 
 learning_objectives:
-  - id: 9.1.1                                          # official DSKP code; use LO1 if absent
+  - id: 9.1.1                                          # official DSKP code; use SemVer (e.g. 1.0.0) if absent
     text: Menentukan kecerunan garis lurus     # MOE language
     text_en: Determine the gradient of a straight line  # English
     bloom: apply
@@ -394,7 +394,7 @@ topics/
 
 ## Learning Objective ID
 
-**Format:** `{official_code}` — use the official numbering from the syllabus standard document (e.g. DSKP, CBSE syllabus). Fall back to `LO{N}` only when no official numbering exists.
+**Format:** `{official_code}` — use the official numbering from the syllabus standard document (e.g. DSKP, CBSE syllabus). Fall back to **Semantic Versioning (SemVer)** format `{section.subsection.item}` when no official numbering exists.
 
 ```
 # Malaysia KSSM (DSKP uses section.subsection.item numbering)
@@ -406,13 +406,18 @@ topics/
 12.1
 12.2
 
-# Fallback — when the syllabus has no official LO codes
-LO1
-LO2
-LO3
+# Fallback — SemVer (section.subsection.item) format when the syllabus has no official LO codes
+1.0.0
+1.1.0
+2.0.0
 ```
 
-Scoped within a single topic. When using the `LO{N}` fallback, reset to `LO1` for each topic.
+SemVer fallback semantics:
+- **section** — learning objective group or strand (increment for each new group)
+- **subsection** — sub-objective within the group (increment for each sub-objective)
+- **item** — revision or granular variant (start at `0`, increment for refinements)
+
+Scoped within a single topic. When using the SemVer fallback, reset to `1.0.0` for each topic.
 
 ---
 
