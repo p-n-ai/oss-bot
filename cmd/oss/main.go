@@ -666,31 +666,62 @@ func runTranslate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// translateSingleTopic translates a single topic and writes the translation
-// back into the topic YAML file under the translations field.
+// translateSingleTopic translates a topic YAML and its companion files
+// (teaching notes, assessments, examples) to the target language, writing
+// each translated file into translations/{lang}/ per id-conventions.md.
 func translateSingleTopic(provider ai.Provider, repoPath, topicID, targetLang string) error {
 	genCtx, err := generator.BuildContext(repoPath, topicID)
 	if err != nil {
 		return fmt.Errorf("building context for %s: %w", topicID, err)
 	}
 
-	result, err := generator.Translate(context.Background(), provider, &genCtx.Topic, targetLang)
-	if err != nil {
-		return fmt.Errorf("translating %s: %w", topicID, err)
-	}
-
-	// Write translation into topic YAML
 	topicFile, err := generator.FindTopicFile(repoPath, topicID)
 	if err != nil {
 		return fmt.Errorf("finding topic file for %s: %w", topicID, err)
 	}
 
-	translationContent := pipeline.StripCodeFences(result.Content)
-	if err := generator.WriteTranslationToTopic(topicFile, targetLang, translationContent); err != nil {
-		return fmt.Errorf("writing translation for %s: %w", topicID, err)
+	topicsDir := filepath.Dir(topicFile)
+	base := strings.TrimSuffix(filepath.Base(topicFile), filepath.Ext(topicFile))
+
+	// 1. Translate topic YAML
+	result, err := generator.Translate(context.Background(), provider, &genCtx.Topic, targetLang)
+	if err != nil {
+		return fmt.Errorf("translating %s: %w", topicID, err)
 	}
 
-	fmt.Printf("  ✓ %s translated to %s\n", topicID, targetLang)
+	content := pipeline.StripCodeFences(result.Content)
+	if err := generator.WriteTranslationFile(topicsDir, targetLang, base+".yaml", content); err != nil {
+		return fmt.Errorf("writing translation for %s: %w", topicID, err)
+	}
+	fmt.Printf("  ✓ %s.yaml translated to %s\n", topicID, targetLang)
+
+	// 2. Translate companion files if they exist
+	companions := []string{
+		base + ".teaching.md",
+		base + ".assessments.yaml",
+		base + ".examples.yaml",
+	}
+
+	for _, fileName := range companions {
+		filePath := filepath.Join(topicsDir, fileName)
+		if _, err := os.Stat(filePath); err != nil {
+			continue // file doesn't exist, skip
+		}
+
+		res, err := generator.TranslateFile(context.Background(), provider, topicID, filePath, targetLang)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ %s: %v\n", fileName, err)
+			continue
+		}
+
+		translated := pipeline.StripCodeFences(res.Content)
+		if err := generator.WriteTranslationFile(topicsDir, targetLang, fileName, translated); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ writing %s: %v\n", fileName, err)
+			continue
+		}
+		fmt.Printf("  ✓ %s translated to %s\n", fileName, targetLang)
+	}
+
 	return nil
 }
 

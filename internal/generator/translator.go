@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/p-n-ai/oss-bot/internal/ai"
-	"gopkg.in/yaml.v3"
 )
 
 // LanguageNames maps language codes to full names.
@@ -81,60 +81,76 @@ func supportedLanguages() []string {
 	return langs
 }
 
-// WriteTranslationToTopic reads a topic YAML file and adds or updates a
-// translation entry under the "translations" mapping for the given language code.
-func WriteTranslationToTopic(topicFilePath, langCode, translationContent string) error {
-	data, err := os.ReadFile(topicFilePath)
+// TranslateFile translates the content of a companion file (teaching notes,
+// assessments, examples) to the target language.
+func TranslateFile(ctx context.Context, provider ai.Provider, topicID, filePath, targetLang string) (*GenerationResult, error) {
+	langName, ok := LanguageNames[targetLang]
+	if !ok {
+		return nil, fmt.Errorf("unsupported language: %s (supported: %v)", targetLang, supportedLanguages())
+	}
+
+	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("reading topic file: %w", err)
+		return nil, fmt.Errorf("reading file %s: %w", filePath, err)
 	}
 
-	var raw yaml.Node
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("parsing topic YAML: %w", err)
+	fileName := filepath.Base(filePath)
+	fileType := "YAML"
+	if strings.HasSuffix(fileName, ".md") {
+		fileType = "Markdown"
 	}
 
-	if raw.Kind != yaml.DocumentNode || len(raw.Content) == 0 {
-		return fmt.Errorf("unexpected YAML structure")
-	}
-	mapping := raw.Content[0]
-	if mapping.Kind != yaml.MappingNode {
-		return fmt.Errorf("expected mapping node, got %d", mapping.Kind)
-	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Translate the following %s education content file to %s.\n\n", fileType, langName))
+	sb.WriteString(fmt.Sprintf("Topic: %s\n", topicID))
+	sb.WriteString(fmt.Sprintf("File: %s\n\n", fileName))
+	sb.WriteString("## Content to translate\n\n")
+	sb.WriteString(string(content))
+	sb.WriteString("\n\n## Rules\n")
+	sb.WriteString("- Only translate human-readable text (descriptions, explanations, questions, answers)\n")
+	sb.WriteString("- Do NOT translate: id, bloom, difficulty, provenance, metadata fields, YAML keys\n")
+	sb.WriteString("- Preserve LaTeX notation ($...$) unchanged\n")
+	sb.WriteString("- Preserve Markdown formatting (headers, lists, code blocks) unchanged\n")
+	sb.WriteString("- Use mathematically correct terminology in the target language\n")
+	sb.WriteString("- Maintain the same structure and indentation\n")
+	sb.WriteString(fmt.Sprintf("- Output ONLY the translated %s content\n", fileType))
 
-	// Find or create the "translations" mapping
-	var translationsNode *yaml.Node
-	for i := 0; i < len(mapping.Content)-1; i += 2 {
-		if mapping.Content[i].Value == "translations" {
-			translationsNode = mapping.Content[i+1]
-			break
-		}
-	}
+	systemPrompt := "You are a professional translator specializing in education content. Translate accurately while preserving the file structure. Output ONLY the translated content."
 
-	if translationsNode == nil || translationsNode.Kind != yaml.MappingNode {
-		// Create a new translations mapping node
-		translationsNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		setMappingKey(mapping, "translations", translationsNode)
-	}
-
-	// Build a scalar node for the translation content
-	contentNode := &yaml.Node{
-		Kind:  yaml.ScalarNode,
-		Value: translationContent,
-		Style: yaml.LiteralStyle, // Use | block scalar for readability
-		Tag:   "!!str",
-	}
-
-	// Set or replace the language entry within translations
-	setMappingKey(translationsNode, langCode, contentNode)
-
-	out, err := yaml.Marshal(&raw)
+	resp, err := provider.Complete(ctx, ai.CompletionRequest{
+		Messages: []ai.Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: sb.String()},
+		},
+		MaxTokens:   4096,
+		Temperature: 0.3,
+	})
 	if err != nil {
-		return fmt.Errorf("marshaling updated YAML: %w", err)
+		return nil, fmt.Errorf("translation of %s failed: %w", fileName, err)
 	}
 
-	if err := os.WriteFile(topicFilePath, out, 0o644); err != nil {
-		return fmt.Errorf("writing topic file: %w", err)
+	return &GenerationResult{
+		Content:      resp.Content,
+		Model:        resp.Model,
+		InputTokens:  resp.InputTokens,
+		OutputTokens: resp.OutputTokens,
+	}, nil
+}
+
+// WriteTranslationFile writes translated content to the translations/{lang}/ directory
+// following the id-conventions.md spec. The topicsDir is the directory containing
+// the topic files, and fileName is the output filename (e.g. "MT3-09.yaml",
+// "MT3-09.teaching.md", "MT3-09.assessments.yaml").
+func WriteTranslationFile(topicsDir, langCode, fileName, translationContent string) error {
+	// Create translations/{lang}/ directory
+	translationDir := filepath.Join(topicsDir, "translations", langCode)
+	if err := os.MkdirAll(translationDir, 0o755); err != nil {
+		return fmt.Errorf("creating translation directory: %w", err)
+	}
+
+	outPath := filepath.Join(translationDir, fileName)
+	if err := os.WriteFile(outPath, []byte(translationContent), 0o644); err != nil {
+		return fmt.Errorf("writing translation file: %w", err)
 	}
 
 	return nil

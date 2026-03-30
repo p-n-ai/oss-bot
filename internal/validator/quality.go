@@ -157,9 +157,29 @@ func TopicInfoFromYAML(data []byte, filePath, baseDir string) TopicInfo {
 		info.HasAssessments = true
 	}
 
-	// Check translations (locale directory)
-	if _, ok := raw["translations"]; ok {
-		info.HasTranslation = true
+	// Check translations (translations/ directory with at least one lang subfolder containing a file for this topic)
+	translationsDir := filepath.Join(dir, "translations")
+	if entries, err := os.ReadDir(translationsDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				// Check if this lang folder has a translation file for this topic
+				langDir := filepath.Join(translationsDir, entry.Name())
+				candidates := []string{
+					filepath.Join(langDir, base+".yaml"),
+					filepath.Join(langDir, base+".teaching.md"),
+					filepath.Join(langDir, base+".assessments.yaml"),
+				}
+				for _, candidate := range candidates {
+					if _, err := os.Stat(candidate); err == nil {
+						info.HasTranslation = true
+						break
+					}
+				}
+				if info.HasTranslation {
+					break
+				}
+			}
+		}
 	}
 	if _, ok := raw["cross_curriculum"]; ok {
 		info.HasCrossCurriculum = true
