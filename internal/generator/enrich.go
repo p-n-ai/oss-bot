@@ -145,6 +145,25 @@ func EnrichTopicYAML(topicFilePath string, enrichmentYAML string) (string, error
 	setMappingKey(mapping, "teaching", teachingNode)
 	setMappingKey(mapping, "engagement_hooks", hooksNode)
 
+	// Ensure mastery, ai_teaching_notes, and assessments_file are present.
+	// These may have been dropped by the AI during import.
+	topicID := getMappingValue(mapping, "id")
+	if topicID != "" {
+		if !hasMappingKey(mapping, "mastery") {
+			masteryYAML := "minimum_score: 0.75\nassessment_count: 3\nspaced_repetition:\n  initial_interval_days: 3\n  multiplier: 2.5"
+			var masteryNode yaml.Node
+			if err := yaml.Unmarshal([]byte(masteryYAML), &masteryNode); err == nil && masteryNode.Kind == yaml.DocumentNode && len(masteryNode.Content) > 0 {
+				setMappingKey(mapping, "mastery", masteryNode.Content[0])
+			}
+		}
+		if !hasMappingKey(mapping, "ai_teaching_notes") {
+			setMappingKey(mapping, "ai_teaching_notes", &yaml.Node{Kind: yaml.ScalarNode, Value: topicID + ".teaching.md", Tag: "!!str"})
+		}
+		if !hasMappingKey(mapping, "assessments_file") {
+			setMappingKey(mapping, "assessments_file", &yaml.Node{Kind: yaml.ScalarNode, Value: topicID + ".assessments.yaml", Tag: "!!str"})
+		}
+	}
+
 	// Marshal back
 	out, err := yaml.Marshal(&raw)
 	if err != nil {
@@ -167,6 +186,27 @@ func setMappingKey(mapping *yaml.Node, key string, value *yaml.Node) {
 		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
 		value,
 	)
+}
+
+// hasMappingKey checks whether a yaml.MappingNode contains a given key.
+func hasMappingKey(mapping *yaml.Node, key string) bool {
+	for i := 0; i < len(mapping.Content)-1; i += 2 {
+		if mapping.Content[i].Value == key {
+			return true
+		}
+	}
+	return false
+}
+
+// getMappingValue returns the scalar value for a key in a yaml.MappingNode,
+// or empty string if not found or not a scalar.
+func getMappingValue(mapping *yaml.Node, key string) string {
+	for i := 0; i < len(mapping.Content)-1; i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1].Value
+		}
+	}
+	return ""
 }
 
 // yamlValueNode marshals a Go value into a yaml.Node suitable for insertion.

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/p-n-ai/oss-bot/internal/generator"
 	"github.com/p-n-ai/oss-bot/internal/output"
 	"github.com/p-n-ai/oss-bot/internal/validator"
+	"gopkg.in/yaml.v3"
 )
 
 // ExecutionMode determines what happens after content is generated and validated.
@@ -154,6 +156,12 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 		if err := p.writer.WriteFiles(ctx, req.OutputDir, generated.Files); err != nil {
 			return nil, fmt.Errorf("writing files: %w", err)
 		}
+		// Update the topic YAML to reference the generated companion file.
+		if req.ContributionType != "topic_enrich" {
+			if updateErr := updateTopicFileRef(genCtx, req.ContributionType); updateErr != nil {
+				slog.Warn("failed to update topic YAML file reference", "type", req.ContributionType, "error", updateErr)
+			}
+		}
 	case ModeCreatePR:
 		mergeDetails := ""
 		if result.MergeReport != nil {
@@ -292,6 +300,87 @@ func StripCodeFences(s string) string {
 		}
 	}
 	return s
+}
+
+// updateTopicFileRef updates the topic YAML file to set the file reference field
+// (ai_teaching_notes, assessments_file, or examples_file) for the given contribution type.
+// This ensures the topic YAML always points to the generated companion file.
+func updateTopicFileRef(genCtx *generator.GenerationContext, contribType string) error {
+	if genCtx.TopicDir == "" || genCtx.Topic.ID == "" {
+		return nil
+	}
+
+	// Determine which YAML key and filename to set.
+	var yamlKey, fileName string
+	switch contribType {
+	case "teaching_notes":
+		fileName = genCtx.Topic.ID + ".teaching.md"
+		yamlKey = "ai_teaching_notes"
+		if genCtx.Topic.TeachingNotesFile == fileName {
+			return nil // already correct
+		}
+	case "assessments":
+		fileName = genCtx.Topic.ID + ".assessments.yaml"
+		yamlKey = "assessments_file"
+		if genCtx.Topic.AssessmentsFile == fileName {
+			return nil
+		}
+	case "examples":
+		fileName = genCtx.Topic.ID + ".examples.yaml"
+		yamlKey = "examples_file"
+		if genCtx.Topic.ExamplesFile == fileName {
+			return nil
+		}
+	default:
+		return nil
+	}
+
+	// Find the topic YAML file in TopicDir.
+	topicFile := filepath.Join(genCtx.TopicDir, genCtx.Topic.ID+".yaml")
+	data, err := os.ReadFile(topicFile)
+	if err != nil {
+		return fmt.Errorf("reading topic file %s: %w", topicFile, err)
+	}
+
+	var raw yaml.Node
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parsing topic YAML: %w", err)
+	}
+	if raw.Kind != yaml.DocumentNode || len(raw.Content) == 0 {
+		return fmt.Errorf("unexpected YAML structure in %s", topicFile)
+	}
+	mapping := raw.Content[0]
+	if mapping.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected mapping node in %s", topicFile)
+	}
+
+	// Set or update the key.
+	found := false
+	for i := 0; i < len(mapping.Content)-1; i += 2 {
+		if mapping.Content[i].Value == yamlKey {
+			mapping.Content[i+1].Value = fileName
+			mapping.Content[i+1].Tag = "!!str"
+			found = true
+			break
+		}
+	}
+	if !found {
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: yamlKey, Tag: "!!str"},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: fileName, Tag: "!!str"},
+		)
+	}
+
+	out, err := yaml.Marshal(&raw)
+	if err != nil {
+		return fmt.Errorf("marshaling updated YAML: %w", err)
+	}
+
+	if err := os.WriteFile(topicFile, out, 0644); err != nil {
+		return fmt.Errorf("writing updated topic file: %w", err)
+	}
+
+	return nil
 }
 
 // genLOsToValidatorLOs converts generator learning objectives to the validator package type.

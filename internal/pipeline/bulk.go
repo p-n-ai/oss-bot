@@ -12,6 +12,7 @@ import (
 
 	"github.com/p-n-ai/oss-bot/internal/ai"
 	"github.com/p-n-ai/oss-bot/internal/parser"
+	"gopkg.in/yaml.v3"
 )
 
 // TopicResult holds the result for a single chunk processed in a bulk import.
@@ -401,5 +402,90 @@ RULES:
 		return "", err
 	}
 
-	return resp.Content, nil
+	content := StripCodeFences(resp.Content)
+
+	// Post-process: ensure mastery, ai_teaching_notes, and assessments_file
+	// fields are present. AI models often drop these from their output even
+	// when they appear in the prompt template.
+	content = ensureTopicFields(content, topicID)
+
+	return content, nil
+}
+
+// ensureTopicFields parses the AI-generated topic YAML and injects required
+// fields (mastery, ai_teaching_notes, assessments_file) if missing.
+func ensureTopicFields(content, topicID string) string {
+	if topicID == "" {
+		return content
+	}
+
+	var raw yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
+		return content // return as-is if unparseable
+	}
+	if raw.Kind != yaml.DocumentNode || len(raw.Content) == 0 {
+		return content
+	}
+	mapping := raw.Content[0]
+	if mapping.Kind != yaml.MappingNode {
+		return content
+	}
+
+	changed := false
+
+	// Ensure mastery block
+	if !hasMappingKey(mapping, "mastery") {
+		masteryYAML := `minimum_score: 0.75
+assessment_count: 3
+spaced_repetition:
+  initial_interval_days: 3
+  multiplier: 2.5`
+		var masteryNode yaml.Node
+		if err := yaml.Unmarshal([]byte(masteryYAML), &masteryNode); err == nil {
+			val := masteryNode.Content[0]
+			mapping.Content = append(mapping.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "mastery", Tag: "!!str"},
+				val,
+			)
+			changed = true
+		}
+	}
+
+	// Ensure ai_teaching_notes
+	if !hasMappingKey(mapping, "ai_teaching_notes") {
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "ai_teaching_notes", Tag: "!!str"},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: topicID + ".teaching.md", Tag: "!!str"},
+		)
+		changed = true
+	}
+
+	// Ensure assessments_file
+	if !hasMappingKey(mapping, "assessments_file") {
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "assessments_file", Tag: "!!str"},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: topicID + ".assessments.yaml", Tag: "!!str"},
+		)
+		changed = true
+	}
+
+	if !changed {
+		return content
+	}
+
+	out, err := yaml.Marshal(&raw)
+	if err != nil {
+		return content
+	}
+	return string(out)
+}
+
+// hasMappingKey checks whether a yaml.MappingNode contains a given key.
+func hasMappingKey(mapping *yaml.Node, key string) bool {
+	for i := 0; i < len(mapping.Content)-1; i += 2 {
+		if mapping.Content[i].Value == key {
+			return true
+		}
+	}
+	return false
 }
