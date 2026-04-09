@@ -22,7 +22,9 @@ type ValidationResult struct {
 
 // Validator validates YAML files against JSON Schemas.
 type Validator struct {
-	schemas map[string]*jsonschema.Schema
+	schemas       map[string]*jsonschema.Schema
+	resolver      *SchemaResolver                // nil for legacy New() path
+	resolvedCache map[string]*jsonschema.Schema   // keyed by abs schema file path
 }
 
 // New creates a Validator by loading all schemas from the given directory.
@@ -256,4 +258,164 @@ func PrettyJSON(v interface{}) string {
 		return fmt.Sprintf("<error: %v>", err)
 	}
 	return string(b)
+}
+
+// NewWithResolver creates a Validator that resolves schemas per-file using the
+// given SchemaResolver. Schemas are compiled and cached lazily.
+func NewWithResolver(resolver *SchemaResolver) *Validator {
+	return &Validator{
+		schemas:       make(map[string]*jsonschema.Schema),
+		resolver:      resolver,
+		resolvedCache: make(map[string]*jsonschema.Schema),
+	}
+}
+
+// compileAndCache compiles and caches a schema by its absolute file path.
+func (v *Validator) compileAndCache(schemaPath string) (*jsonschema.Schema, error) {
+	absPath, err := filepath.Abs(schemaPath)
+	if err != nil {
+		absPath = schemaPath
+	}
+
+	if cached, ok := v.resolvedCache[absPath]; ok {
+		return cached, nil
+	}
+
+	compiler := jsonschema.NewCompiler()
+	compiler.Draft = jsonschema.Draft2020
+
+	schema, err := compiler.Compile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("compiling schema %s: %w", schemaPath, err)
+	}
+
+	v.resolvedCache[absPath] = schema
+	return schema, nil
+}
+
+// ValidateFileResolved validates a YAML file, resolving the schema based on
+// the file's location (subject-level override or global fallback).
+func (v *Validator) ValidateFileResolved(filePath, schemaType string) (*ValidationResult, error) {
+	if v.resolver == nil {
+		return nil, fmt.Errorf("ValidateFileResolved requires a resolver (use NewWithResolver)")
+	}
+
+	result := &ValidationResult{
+		File: filePath,
+		Type: schemaType,
+	}
+
+	// Resolve the schema path
+	subjectDir := FindSubjectDir(filePath)
+	schemasDir := SubjectSchemasDir(subjectDir)
+	schemaPath, found := v.resolver.ResolveSchemaPath(schemaType, schemasDir)
+	if !found {
+		return nil, fmt.Errorf("schema %q not found in subject or global directories", schemaType)
+	}
+
+	schema, err := v.compileAndCache(schemaPath)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading file: %w", err)
+	}
+
+	return v.validateData(data, schema, result)
+}
+
+// ValidateContentResolved validates YAML content (bytes) against a resolved schema.
+// Used by the generate pipeline to validate in-memory content without writing temp files.
+func (v *Validator) ValidateContentResolved(content []byte, schemaType, subjectSchemasDir string) (*ValidationResult, error) {
+	if v.resolver == nil {
+		return nil, fmt.Errorf("ValidateContentResolved requires a resolver (use NewWithResolver)")
+	}
+
+	result := &ValidationResult{
+		Type: schemaType,
+	}
+
+	schemaPath, found := v.resolver.ResolveSchemaPath(schemaType, subjectSchemasDir)
+	if !found {
+		return nil, fmt.Errorf("schema %q not found in subject or global directories", schemaType)
+	}
+
+	schema, err := v.compileAndCache(schemaPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.validateData(content, schema, result)
+}
+
+// ValidateDirResolved walks a directory tree, validating each YAML file
+// with per-subject schema resolution.
+func (v *Validator) ValidateDirResolved(dir string) ([]ValidationResult, error) {
+	if v.resolver == nil {
+		return nil, fmt.Errorf("ValidateDirResolved requires a resolver (use NewWithResolver)")
+	}
+
+	var results []ValidationResult
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".yaml") && !strings.HasSuffix(path, ".yml") {
+			return nil
+		}
+		if strings.HasSuffix(path, ".teaching.md") {
+			return nil
+		}
+
+		schemaType := DetectSchemaType(path)
+		if schemaType == "" {
+			return nil
+		}
+
+		result, err := v.ValidateFileResolved(path, schemaType)
+		if err != nil {
+			results = append(results, ValidationResult{
+				File:   path,
+				Type:   schemaType,
+				Valid:  false,
+				Errors: []string{err.Error()},
+			})
+			return nil
+		}
+		results = append(results, *result)
+		return nil
+	})
+
+	return results, err
+}
+
+// validateData validates parsed YAML data against a compiled schema.
+func (v *Validator) validateData(data []byte, schema *jsonschema.Schema, result *ValidationResult) (*ValidationResult, error) {
+	var yamlData interface{}
+	if err := yaml.Unmarshal(data, &yamlData); err != nil {
+		result.Valid = false
+		result.Errors = []string{fmt.Sprintf("YAML parse error: %v", err)}
+		return result, nil
+	}
+
+	jsonData := convertYAMLToJSON(yamlData)
+
+	if err := schema.Validate(jsonData); err != nil {
+		result.Valid = false
+		if ve, ok := err.(*jsonschema.ValidationError); ok {
+			result.Errors = flattenValidationErrors(ve)
+		} else {
+			result.Errors = []string{err.Error()}
+		}
+		return result, nil
+	}
+
+	result.Valid = true
+	return result, nil
 }

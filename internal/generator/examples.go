@@ -55,6 +55,13 @@ func BuildExamplesPrompt(genCtx *GenerationContext) string {
 		sb.WriteString("\n")
 	}
 
+	if genCtx.SchemaRules != "" {
+		sb.WriteString("## JSON Schema (your output MUST conform to this schema)\n")
+		sb.WriteString("```json\n")
+		sb.WriteString(genCtx.SchemaRules)
+		sb.WriteString("\n```\n\n")
+	}
+
 	sb.WriteString(fmt.Sprintf(`## Requirements
 - Generate 3 worked examples covering different difficulty levels (easy, medium, hard)
 - Each example must include a real_world_analogy, misconception_alert, scenario, and step-by-step working

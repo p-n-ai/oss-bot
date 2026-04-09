@@ -26,10 +26,10 @@ func SupportedReasoningModels() []ModelInfo {
 			Description: "Moonshot AI reasoning model",
 		},
 		{
-			ID:          "qwen/qwen3.5",
-			Name:        "Qwen 3.5",
+			ID:          "qwen/qwen3.5-flash-02-23",
+			Name:        "Qwen 3.5 Flash",
 			MaxTokens:   131072,
-			Description: "Alibaba Qwen reasoning model",
+			Description: "Alibaba Qwen fast reasoning model",
 		},
 		{
 			ID:          "openai/o3-mini",

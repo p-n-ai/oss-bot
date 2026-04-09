@@ -256,6 +256,292 @@ ai_teaching_notes: F1-01.teaching.md
 	return dir
 }
 
+func TestStripThinkTags(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "no think tags",
+			in:   "id: MT5-03\nname: Test",
+			want: "id: MT5-03\nname: Test",
+		},
+		{
+			name: "full think block before content",
+			in:   "<think>\nsome reasoning\n</think>\nid: MT5-03",
+			want: "id: MT5-03",
+		},
+		{
+			name: "orphaned closing tag only",
+			in:   "</think>\nid: MT5-03",
+			want: "id: MT5-03",
+		},
+		{
+			name: "think block with content after",
+			in:   "<think>deep thought about curriculum</think>\n\nid: MT5-03\nname: Test",
+			want: "id: MT5-03\nname: Test",
+		},
+		{
+			name: "opening tag without closing",
+			in:   "<think>\nreasoning forever...",
+			want: "",
+		},
+		{
+			name: "multiple think blocks",
+			in:   "<think>first</think>id: MT5-03<think>second</think>\nname: Test",
+			want: "id: MT5-03\nname: Test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pipeline.StripThinkTags(tt.in)
+			if got != tt.want {
+				t.Errorf("StripThinkTags()\ngot:  %q\nwant: %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripCodeFences_WithThinkTags(t *testing.T) {
+	// Verify StripCodeFences also strips think tags (integration)
+	in := "</think>\n```yaml\nid: MT5-03\n```"
+	got := pipeline.StripCodeFences(in)
+	if got != "id: MT5-03" {
+		t.Errorf("StripCodeFences with think tags:\ngot:  %q\nwant: %q", got, "id: MT5-03")
+	}
+}
+
+func TestSchemaTypeForContribution(t *testing.T) {
+	tests := []struct {
+		contribType string
+		want        string
+	}{
+		{"assessments", "assessments"},
+		{"examples", "examples"},
+		{"topic_enrich", "topic"},
+		{"teaching_notes", ""},
+		{"unknown", ""},
+	}
+	for _, tt := range tests {
+		got := pipeline.SchemaTypeForContribution(tt.contribType)
+		if got != tt.want {
+			t.Errorf("SchemaTypeForContribution(%q) = %q, want %q", tt.contribType, got, tt.want)
+		}
+	}
+}
+
+func TestPipeline_SchemaInjectedIntoPrompt(t *testing.T) {
+	repoDir := setupPipelineTestRepoWithSchema(t)
+
+	// Track what the AI receives
+	var capturedPrompt string
+	mock := &promptCapturingMock{
+		response: validAssessmentsResponse,
+		capturedPrompt: &capturedPrompt,
+	}
+
+	p := pipeline.New(mock, &output.LocalWriter{}, "prompts/", repoDir)
+
+	_, err := p.Execute(context.Background(), pipeline.Request{
+		TopicPath:        "F1-01",
+		ContributionType: "assessments",
+		Mode:             pipeline.ModePreview,
+		Options:          map[string]string{"count": "1", "difficulty": "easy"},
+		Source:           "cli",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if capturedPrompt == "" {
+		t.Fatal("prompt was not captured")
+	}
+	if !containsStr(capturedPrompt, "JSON Schema") {
+		t.Error("prompt should contain 'JSON Schema' section when schema exists")
+	}
+	if !containsStr(capturedPrompt, "topic_id") {
+		t.Error("prompt should contain schema content")
+	}
+}
+
+func TestPipeline_SchemaValidation_RetryOnFailure(t *testing.T) {
+	repoDir := setupPipelineTestRepoWithSchema(t)
+
+	// First call returns invalid YAML (missing required "marks" per schema), second returns valid
+	callCount := 0
+	mock := &sequentialMock{
+		responses: []string{
+			invalidAssessmentsResponse, // first: missing marks
+			validAssessmentsResponse,   // retry: valid
+		},
+		callCount: &callCount,
+	}
+
+	p := pipeline.New(mock, &output.LocalWriter{}, "prompts/", repoDir)
+
+	_, err := p.Execute(context.Background(), pipeline.Request{
+		TopicPath:        "F1-01",
+		ContributionType: "assessments",
+		Mode:             pipeline.ModePreview,
+		Options:          map[string]string{"count": "1", "difficulty": "easy"},
+		Source:           "cli",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if callCount < 2 {
+		t.Errorf("expected at least 2 AI calls (initial + retry), got %d", callCount)
+	}
+}
+
+// --- Schema test helpers ---
+
+const validAssessmentsResponse = `topic_id: F1-01
+provenance: ai-generated
+questions:
+  - id: Q1
+    text: "What is 1+1?"
+    difficulty: easy
+    learning_objective: "1.0.1"
+    answer:
+      type: exact
+      value: "2"
+    marks: 1
+`
+
+const invalidAssessmentsResponse = `topic_id: F1-01
+provenance: ai-generated
+questions:
+  - id: Q1
+    text: "What is 1+1?"
+    difficulty: easy
+    learning_objective: "1.0.1"
+    answer:
+      type: exact
+      value: "2"
+`
+
+// promptCapturingMock captures the user prompt from the AI call.
+type promptCapturingMock struct {
+	response       string
+	capturedPrompt *string
+}
+
+func (m *promptCapturingMock) Complete(_ context.Context, req ai.CompletionRequest) (ai.CompletionResponse, error) {
+	for _, msg := range req.Messages {
+		if msg.Role == "user" {
+			*m.capturedPrompt = msg.Content
+		}
+	}
+	return ai.CompletionResponse{Content: m.response, Model: "mock"}, nil
+}
+
+func (m *promptCapturingMock) StreamComplete(_ context.Context, _ ai.CompletionRequest) (<-chan ai.StreamChunk, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *promptCapturingMock) Models() []ai.ModelInfo {
+	return []ai.ModelInfo{{ID: "mock"}}
+}
+
+// sequentialMock returns different responses on consecutive calls.
+type sequentialMock struct {
+	responses []string
+	callCount *int
+}
+
+func (m *sequentialMock) Complete(_ context.Context, _ ai.CompletionRequest) (ai.CompletionResponse, error) {
+	idx := *m.callCount
+	*m.callCount++
+	if idx < len(m.responses) {
+		return ai.CompletionResponse{Content: m.responses[idx], Model: "mock"}, nil
+	}
+	return ai.CompletionResponse{Content: m.responses[len(m.responses)-1], Model: "mock"}, nil
+}
+
+func (m *sequentialMock) StreamComplete(_ context.Context, _ ai.CompletionRequest) (<-chan ai.StreamChunk, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *sequentialMock) Models() []ai.ModelInfo {
+	return []ai.ModelInfo{{ID: "mock"}}
+}
+
+// setupPipelineTestRepoWithSchema creates a test repo with a subject-level schema
+// that requires "marks" on assessments questions.
+func setupPipelineTestRepoWithSchema(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	// Subject directory with subject.yaml
+	subjectDir := filepath.Join(dir, "curricula", "test", "test-algebra")
+	os.MkdirAll(subjectDir, 0o755)
+	os.WriteFile(filepath.Join(subjectDir, "subject.yaml"), []byte("id: test-algebra\nname: Algebra\nsyllabus_id: test\ntopics: []\n"), 0o644)
+
+	// Subject-level schema (assessments requires marks)
+	schemasDir := filepath.Join(subjectDir, "schemas")
+	os.MkdirAll(schemasDir, 0o755)
+	assessmentsSchema := `{
+		"$schema": "https://json-schema.org/draft/2020-12/schema",
+		"type": "object",
+		"required": ["topic_id", "questions"],
+		"properties": {
+			"topic_id": { "type": "string" },
+			"provenance": { "type": "string" },
+			"questions": {
+				"type": "array", "minItems": 1,
+				"items": {
+					"type": "object",
+					"required": ["id", "text", "difficulty", "learning_objective", "answer", "marks"],
+					"properties": {
+						"id": { "type": "string" },
+						"text": { "type": "string" },
+						"difficulty": { "type": "string", "enum": ["easy", "medium", "hard"] },
+						"learning_objective": { "type": "string" },
+						"answer": {
+							"type": "object",
+							"required": ["type", "value"],
+							"properties": {
+								"type": { "type": "string" },
+								"value": { "type": "string" }
+							},
+							"additionalProperties": false
+						},
+						"marks": { "type": "integer", "minimum": 1 }
+					},
+					"additionalProperties": false
+				}
+			}
+		},
+		"additionalProperties": false
+	}`
+	os.WriteFile(filepath.Join(schemasDir, "assessments.schema.json"), []byte(assessmentsSchema), 0o644)
+
+	// Topics
+	topicsDir := filepath.Join(subjectDir, "test-algebra-1", "topics")
+	os.MkdirAll(topicsDir, 0o755)
+	os.WriteFile(filepath.Join(topicsDir, "01-test.yaml"), []byte(`
+id: F1-01
+name: "Test Topic"
+subject_id: test-algebra
+syllabus_id: test
+difficulty: beginner
+learning_objectives:
+  - id: 1.0.1
+    text: "Test objective"
+    bloom: understand
+prerequisites:
+  required: []
+quality_level: 1
+provenance: human
+`), 0o644)
+
+	return dir
+}
+
 func setupPipelineTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

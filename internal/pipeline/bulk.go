@@ -410,14 +410,14 @@ RULES:
 	// Post-process: ensure mastery, ai_teaching_notes, and assessments_file
 	// fields are present. AI models often drop these from their output even
 	// when they appear in the prompt template.
-	content = ensureTopicFields(content, topicID)
+	content = EnsureTopicFields(content, topicID)
 
 	return content, nil
 }
 
-// ensureTopicFields parses the AI-generated topic YAML and injects required
+// EnsureTopicFields parses the AI-generated topic YAML and injects required
 // fields (mastery, ai_teaching_notes, assessments_file) if missing.
-func ensureTopicFields(content, topicID string) string {
+func EnsureTopicFields(content, topicID string) string {
 	if topicID == "" {
 		return content
 	}

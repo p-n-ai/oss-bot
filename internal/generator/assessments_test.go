@@ -80,3 +80,43 @@ func TestBuildAssessmentsPrompt(t *testing.T) {
 		t.Error("Prompt should mention tp_level field")
 	}
 }
+
+func TestBuildAssessmentsPrompt_WithSchemaRules(t *testing.T) {
+	genCtx := &generator.GenerationContext{
+		Topic: generator.Topic{
+			ID:         "F1-01",
+			Name:       "Test Topic",
+			SyllabusID: "test-syllabus",
+			LearningObjectives: []generator.LearningObjective{
+				{ID: "1.0.1", Text: "Test", Bloom: "apply"},
+			},
+		},
+		SchemaRules: `{"type":"object","required":["topic_id","questions"]}`,
+	}
+
+	prompt := generator.BuildAssessmentsPrompt(genCtx, 3, "easy")
+	if !strings.Contains(prompt, "JSON Schema") {
+		t.Error("Prompt should contain JSON Schema section when SchemaRules is set")
+	}
+	if !strings.Contains(prompt, `"required":["topic_id","questions"]`) {
+		t.Error("Prompt should contain the schema content")
+	}
+}
+
+func TestBuildAssessmentsPrompt_WithoutSchemaRules(t *testing.T) {
+	genCtx := &generator.GenerationContext{
+		Topic: generator.Topic{
+			ID:         "F1-01",
+			Name:       "Test Topic",
+			SyllabusID: "test-syllabus",
+			LearningObjectives: []generator.LearningObjective{
+				{ID: "1.0.1", Text: "Test", Bloom: "apply"},
+			},
+		},
+	}
+
+	prompt := generator.BuildAssessmentsPrompt(genCtx, 3, "easy")
+	if strings.Contains(prompt, "JSON Schema") {
+		t.Error("Prompt should NOT contain JSON Schema section when SchemaRules is empty")
+	}
+}

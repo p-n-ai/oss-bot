@@ -55,6 +55,13 @@ func BuildAssessmentsPrompt(genCtx *GenerationContext, count int, difficulty str
 		sb.WriteString("\n")
 	}
 
+	if genCtx.SchemaRules != "" {
+		sb.WriteString("## JSON Schema (your output MUST conform to this schema)\n")
+		sb.WriteString("```json\n")
+		sb.WriteString(genCtx.SchemaRules)
+		sb.WriteString("\n```\n\n")
+	}
+
 	sb.WriteString(fmt.Sprintf(`## Requirements
 - Generate exactly %d questions
 - Each question must include: worked solution, rubric with partial marks, progressive hints

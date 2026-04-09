@@ -116,6 +116,28 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 		}
 	}
 
+	// Schema validation + single retry for YAML content types.
+	if schemaType := SchemaTypeForContribution(req.ContributionType); schemaType != "" {
+		resolver := validator.NewSchemaResolver(filepath.Join(p.repoPath, "schema"))
+		subjectDir := validator.FindSubjectDir(filepath.Join(genCtx.TopicDir, "x.yaml"))
+		schemasDir := validator.SubjectSchemasDir(subjectDir)
+
+		v := validator.NewWithResolver(resolver)
+		vResult, vErr := v.ValidateContentResolved([]byte(generated.Content), schemaType, schemasDir)
+		if vErr == nil && !vResult.Valid && len(genCtx.ValidationFeedback) == 0 {
+			// First failure — retry with schema errors as feedback.
+			genCtx.ValidationFeedback = vResult.Errors
+			generated, err = p.generate(ctx, genCtx, req)
+			if err != nil {
+				return nil, fmt.Errorf("retry generation: %w", err)
+			}
+			generated.Content = StripCodeFences(generated.Content)
+			if req.ContributionType == "assessments" || req.ContributionType == "examples" {
+				generated.Content = SanitizeYAMLQuoting(generated.Content)
+			}
+		}
+	}
+
 	// For topic_enrich, merge the AI output into the existing topic YAML file.
 	if req.ContributionType == "topic_enrich" {
 		topicFile, err := generator.FindTopicFile(p.repoPath, req.TopicPath)
@@ -294,6 +316,7 @@ func buildFilesMap(genCtx *generator.GenerationContext, contribType, content, re
 // StripCodeFences removes markdown code fences (```yaml ... ``` or ```markdown ... ```)
 // that AI models sometimes wrap around generated content.
 func StripCodeFences(s string) string {
+	s = StripThinkTags(s)
 	s = strings.TrimSpace(s)
 	// Check for opening fence: ```yaml, ```yml, ```markdown, or bare ```
 	if strings.HasPrefix(s, "```") {
@@ -309,6 +332,27 @@ func StripCodeFences(s string) string {
 		}
 	}
 	return s
+}
+
+// StripThinkTags removes <think>...</think> blocks that reasoning models
+// (e.g. DeepSeek R1) include in their responses as chain-of-thought output.
+func StripThinkTags(s string) string {
+	for {
+		start := strings.Index(s, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s, "</think>")
+		if end == -1 {
+			// Opening tag without closing — strip from <think> to end
+			s = s[:start]
+			break
+		}
+		s = s[:start] + s[end+len("</think>"):]
+	}
+	// Handle orphaned </think> (model returned only the closing tag)
+	s = strings.ReplaceAll(s, "</think>", "")
+	return strings.TrimSpace(s)
 }
 
 // updateTopicFileRef updates the topic YAML file to set the file reference field
@@ -401,7 +445,36 @@ func genLOsToValidatorLOs(los []generator.LearningObjective) []validator.Learnin
 	return out
 }
 
+// SchemaTypeForContribution maps a contribution type to its schema type name.
+// Returns "" for types that don't have a YAML schema (e.g. teaching_notes is markdown).
+// SchemaTypeForContribution maps a contribution type to its schema type name.
+func SchemaTypeForContribution(ct string) string {
+	switch ct {
+	case "assessments":
+		return "assessments"
+	case "examples":
+		return "examples"
+	case "topic_enrich":
+		return "topic"
+	default:
+		return ""
+	}
+}
+
 func (p *Pipeline) generate(ctx context.Context, genCtx *generator.GenerationContext, req Request) (*generator.GenerationResult, error) {
+	// Resolve and inject schema into generation context for YAML content types.
+	schemaType := SchemaTypeForContribution(req.ContributionType)
+	if schemaType != "" && genCtx.SchemaRules == "" {
+		resolver := validator.NewSchemaResolver(filepath.Join(p.repoPath, "schema"))
+		subjectDir := validator.FindSubjectDir(filepath.Join(genCtx.TopicDir, "x.yaml"))
+		schemasDir := validator.SubjectSchemasDir(subjectDir)
+		if schemaPath, ok := resolver.ResolveSchemaPath(schemaType, schemasDir); ok {
+			if data, err := os.ReadFile(schemaPath); err == nil {
+				genCtx.SchemaRules = string(data)
+			}
+		}
+	}
+
 	switch req.ContributionType {
 	case "teaching_notes":
 		return generator.GenerateTeachingNotes(ctx, p.aiProvider, genCtx)

@@ -74,6 +74,13 @@ func BuildTopicEnrichmentPrompt(genCtx *GenerationContext) string {
 		sb.WriteString("\n\n")
 	}
 
+	if genCtx.SchemaRules != "" {
+		sb.WriteString("## JSON Schema (your output MUST conform to this schema)\n")
+		sb.WriteString("```json\n")
+		sb.WriteString(genCtx.SchemaRules)
+		sb.WriteString("\n```\n\n")
+	}
+
 	sb.WriteString(`## Output Format
 Output ONLY valid YAML with exactly this structure:
 

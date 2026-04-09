@@ -126,7 +126,9 @@ oss-bot/
 # CLI development
 go run ./cmd/oss validate                    # Validate all YAML in local OSS clone
 go run ./cmd/oss validate --file <path>      # Validate single file
-go run ./cmd/oss import --pdf <file>                 # Import from PDF (CLI, Go-native)
+go run ./cmd/oss import --pdf <file>                 # Import from PDF — whole-PDF mode (default, more robust)
+go run ./cmd/oss import --pdf <file> --chunk TAJUK   # Import from PDF — chunk mode (split by keyword)
+go run ./cmd/oss import --pdf <file> --from-text "1. Fungsi\n2. Algebra"  # Whole-PDF with topic hints
 go run ./cmd/oss import --file <file>                # Import from any format (requires Tika)
 go run ./cmd/oss generate teaching-notes <topic-path>
 go run ./cmd/oss generate assessments <topic-path> --count 5 --difficulty medium
@@ -135,7 +137,8 @@ go run ./cmd/oss translate --topic <path> --to <lang>
 go run ./cmd/oss quality <syllabus-path>                           # Or: --syllabus <id> --subject-grade <id>
 go run ./cmd/oss scaffold syllabus --country india --name JEE
 go run ./cmd/oss scaffold subject --syllabus india-jee --name Chemistry --grade 11
-go run ./cmd/oss import --file textbook.pdf --syllabus india-jee --subject-grade india-jee-chemistry-class-11
+go run ./cmd/oss import --pdf textbook.pdf --syllabus india-jee --subject-grade india-jee-chemistry-class-11
+go run ./cmd/oss import --pdf textbook.pdf --syllabus india-jee --subject-grade india-jee-chemistry-class-11 --chunk "Chapter "
 
 # Bot development
 npx smee -u https://smee.io/<channel> -p 8090   # Forward webhooks locally

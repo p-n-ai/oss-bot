@@ -207,7 +207,7 @@ func runGenerateAll(cmd *cobra.Command, _ []string) error {
 
 	// Worker pool
 	type job struct {
-		topicID        string
+		topicID          string
 		contributionType string
 	}
 	jobs := make(chan job, totalJobs)
@@ -354,14 +354,14 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	schemaDir, _ := cmd.Flags().GetString("schema-dir")
 	topicID, _ := cmd.Flags().GetString("topic-id")
 
-	if schemaDir == "" {
-		schemaDir = filepath.Join(repoPath, "schema")
+	globalSchemaDir := schemaDir
+	if globalSchemaDir == "" {
+		globalSchemaDir = filepath.Join(repoPath, "schema")
 	}
 
-	v, err := validator.New(schemaDir)
-	if err != nil {
-		return fmt.Errorf("initializing validator: %w", err)
-	}
+	// Use resolver-based validation: per-subject schema overrides + global fallback.
+	resolver := validator.NewSchemaResolver(globalSchemaDir)
+	v := validator.NewWithResolver(resolver)
 
 	// Single topic by ID — validates all YAML files for that topic (e.g. MT1-03.yaml,
 	// MT1-03.assessments.yaml, MT1-03.examples.yaml).
@@ -400,7 +400,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 			if schemaType == "" {
 				continue
 			}
-			result, err := v.ValidateFile(f, schemaType)
+			result, err := v.ValidateFileResolved(f, schemaType)
 			if err != nil {
 				return err
 			}
@@ -424,7 +424,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		if schemaType == "" {
 			return fmt.Errorf("cannot detect schema type for %s", singleFile)
 		}
-		result, err := v.ValidateFile(singleFile, schemaType)
+		result, err := v.ValidateFileResolved(singleFile, schemaType)
 		if err != nil {
 			return err
 		}
@@ -453,7 +453,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		target = repoPath
 	}
 
-	results, err := v.ValidateDir(target)
+	results, err := v.ValidateDirResolved(target)
 	if err != nil {
 		return fmt.Errorf("validating directory: %w", err)
 	}
@@ -889,12 +889,13 @@ func runScaffoldSubject(cmd *cobra.Command, _ []string) error {
 
 	s := generator.NewScaffolder(provider)
 	result, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{
-		SyllabusID:     syllabusID,
-		SubjectID:      subjectID,
-		SubjectGradeID: subjectGradeID,
-		Country:        country,
-		SourceText:     sourceText,
-		OutputDir:      outputDir,
+		SyllabusID:      syllabusID,
+		SubjectID:       subjectID,
+		SubjectGradeID:  subjectGradeID,
+		Country:         country,
+		SourceText:      sourceText,
+		OutputDir:       outputDir,
+		GlobalSchemaDir: filepath.Join(outputDir, "schema"),
 	})
 	if err != nil {
 		return fmt.Errorf("scaffolding subject: %w", err)
@@ -916,21 +917,37 @@ func importCmd() *cobra.Command {
 		Use:   "import",
 		Short: "Import curriculum content from a PDF into the OSS repo",
 		Long: `Extract curriculum topics from a PDF document and generate structured
-YAML files in the OSS repo. Uses parallel AI workers to process each
-chapter/section concurrently.
+YAML files in the OSS repo.
 
-Example:
-  oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4`,
+Default mode (whole-PDF): sends the entire PDF content to a reasoning model
+with a large context window. If a scaffold exists, topic names and IDs are
+included as reference so the AI can locate each topic in the document.
+
+Chunk mode (--chunk): splits the PDF by the given keyword and processes each
+chunk in parallel with separate AI calls.
+
+Examples:
+  # Whole-PDF mode (default, more robust)
+  oss import --pdf Tingkatan-1.pdf --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-1
+
+  # Whole-PDF with topic name hints
+  oss import --pdf Tingkatan-1.pdf --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-1 --from-text "1. Fungsi\n2. Algebra"
+
+  # Chunk mode (legacy, for DSKP-style documents)
+  oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --chunk TAJUK`,
 		RunE: runImport,
 	}
 	cmd.Flags().String("pdf", "", "Path to PDF file (required)")
 	cmd.Flags().String("syllabus", "", "Target syllabus ID (required, e.g. malaysia-kssm)")
 	cmd.Flags().String("subject-grade", "", "Target subject grade ID (e.g. malaysia-kssm-matematik-tingkatan-4)")
-	cmd.Flags().Int("workers", 3, "Number of parallel AI workers (overrides OSS_WORKER_COUNT)")
-	cmd.Flags().Int("chunk-size", 2000, "Max tokens per chunk (lower = more files, higher = less context loss)")
+	cmd.Flags().String("chunk", "", "Enable chunk mode: split PDF by this keyword (e.g. TAJUK) and process chunks in parallel")
+	cmd.Flags().Int("workers", 3, "Number of parallel AI workers (chunk mode only)")
+	cmd.Flags().Int("chunk-size", 2000, "Max tokens per chunk (chunk mode only)")
 	cmd.Flags().Bool("pr", false, "Create a GitHub PR instead of writing to filesystem")
 	cmd.Flags().Bool("force", false, "Overwrite existing topic files instead of AI-merging them")
 	cmd.Flags().String("topic-id", "", "Import only the specified topic (e.g. MT4-01)")
+	cmd.Flags().String("from-text", "", "Topic name reference text (one topic per line, used as hints for AI)")
+	cmd.Flags().String("from-file", "", "Path to file containing topic name references (alternative to --from-text)")
 	cmd.MarkFlagRequired("pdf")
 	cmd.MarkFlagRequired("syllabus")
 	return cmd
@@ -945,6 +962,9 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	chunkSize, _ := cmd.Flags().GetInt("chunk-size")
 	createPR, _ := cmd.Flags().GetBool("pr")
 	force, _ := cmd.Flags().GetBool("force")
+	chunkKeyword, _ := cmd.Flags().GetString("chunk")
+	fromText, _ := cmd.Flags().GetString("from-text")
+	fromFile, _ := cmd.Flags().GetString("from-file")
 
 	if filterTopicID != "" && subjectGradeID == "" {
 		return fmt.Errorf("--topic-id requires --subject-grade flag")
@@ -978,40 +998,9 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("extracting PDF: %w", err)
 	}
-	fmt.Printf("Extracted %d characters\n", len(text))
+	fmt.Printf("Extracted %d characters (~%d tokens)\n", len(text), len(text)/4)
 
-	// 2. Try DSKP-specific extraction first; fall back to generic chunker.
-	// DSKP (Dokumen Standard Kurikulum dan Pentaksiran) uses BIDANG PEMBELAJARAN
-	// / TAJUK markers that are distinct from generic Markdown headings.
-	var chunks []parser.Chunk
-	if dskpTopics := extractDSKPTopics(text); len(dskpTopics) > 0 {
-		fmt.Printf("Detected DSKP format: %d topics (BIDANG PEMBELAJARAN/TAJUK structure)\n", len(dskpTopics))
-		chunks = dskpTopicsToChunks(dskpTopics)
-	} else {
-		chunks = parser.ChunkDocument(text, parser.ChunkOptions{
-			MaxChunkSize: chunkSize,
-			SplitOn:      []string{"# ", "## ", "### ", "Chapter ", "Bab ", "BAB ", "BAHAGIAN ", "Bahagian ", "TAJUK", "Tajuk"},
-		})
-	}
-	fmt.Printf("Split into %d chunks\n", len(chunks))
-
-	// Filter chunks early when --topic-id is set so we only send the
-	// matching chunk to the AI, avoiding unnecessary processing.
-	if filterTopicID != "" && subjectGradeID != "" {
-		var filtered []parser.Chunk
-		for _, c := range chunks {
-			if topicFileID(subjectGradeID, c.Heading, c.Index) == filterTopicID {
-				filtered = append(filtered, c)
-			}
-		}
-		if len(filtered) == 0 {
-			return fmt.Errorf("no chunk matches --topic-id %s (available: %s)", filterTopicID, availableTopicIDs(subjectGradeID, chunks))
-		}
-		fmt.Printf("Filtered to %d chunk(s) matching topic %s\n", len(filtered), filterTopicID)
-		chunks = filtered
-	}
-
-	// 3. Resolve output directory — search for existing subject topics dir
+	// 2. Resolve output directory — search for existing subject topics dir
 	// created by scaffold, fall back to a flat output dir.
 	topicsDir, err := findSubjectTopicsDir(repoPath, subjectGradeID, subjectBaseID(subjectGradeID), syllabusID)
 	if err != nil {
@@ -1023,39 +1012,277 @@ func runImport(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("creating output dir %s: %w", topicsDir, err)
 	}
 
-	// 4. Run bulk import with progress reporting
 	mode := pipeline.ModeWriteFS
 	if createPR {
 		mode = pipeline.ModeCreatePR
 	}
+
+	// Branch: chunk mode (--chunk) vs whole-PDF mode (default)
+	if chunkKeyword != "" {
+		return runImportChunkMode(cmd, text, importChunkOpts{
+			syllabusID:     syllabusID,
+			subjectGradeID: subjectGradeID,
+			filterTopicID:  filterTopicID,
+			chunkKeyword:   chunkKeyword,
+			chunkSize:      chunkSize,
+			workers:        workers,
+			mode:           mode,
+			force:          force,
+			topicsDir:      topicsDir,
+			provider:       reasoningProvider,
+		})
+	}
+
+	return runImportWholeMode(cmd, text, importWholeOpts{
+		syllabusID:     syllabusID,
+		subjectGradeID: subjectGradeID,
+		filterTopicID:  filterTopicID,
+		fromText:       fromText,
+		fromFile:       fromFile,
+		mode:           mode,
+		force:          force,
+		topicsDir:      topicsDir,
+		repoPath:       repoPath,
+		provider:       reasoningProvider,
+	})
+}
+
+// importChunkOpts holds options for chunk-based import mode.
+type importChunkOpts struct {
+	syllabusID     string
+	subjectGradeID string
+	filterTopicID  string
+	chunkKeyword   string
+	chunkSize      int
+	workers        int
+	mode           pipeline.ExecutionMode
+	force          bool
+	topicsDir      string
+	provider       ai.Provider
+}
+
+// runImportChunkMode runs the legacy chunk-based import, splitting the PDF by a keyword
+// (e.g. TAJUK) and processing each chunk in parallel.
+func runImportChunkMode(cmd *cobra.Command, text string, opts importChunkOpts) error {
+	fmt.Printf("Chunk mode: splitting by %q\n", opts.chunkKeyword)
+
+	// Try DSKP-specific extraction first; fall back to generic chunker.
+	var chunks []parser.Chunk
+	if dskpTopics := extractDSKPTopics(text); len(dskpTopics) > 0 {
+		fmt.Printf("Detected DSKP format: %d topics (chapter structure)\n", len(dskpTopics))
+		chunks = dskpTopicsToChunks(dskpTopics)
+	} else {
+		chunks = parser.ChunkDocument(text, parser.ChunkOptions{
+			MaxChunkSize: opts.chunkSize,
+			SplitOn:      []string{"# ", "## ", "### ", "Chapter ", "Bab ", "BAB ", "BAHAGIAN ", "Bahagian ", opts.chunkKeyword},
+		})
+	}
+	fmt.Printf("Split into %d chunks\n", len(chunks))
+
+	// Filter chunks early when --topic-id is set.
+	if opts.filterTopicID != "" && opts.subjectGradeID != "" {
+		var filtered []parser.Chunk
+		for _, c := range chunks {
+			if topicFileID(opts.subjectGradeID, c.Heading, c.Index) == opts.filterTopicID {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) == 0 {
+			return fmt.Errorf("no chunk matches --topic-id %s (available: %s)", opts.filterTopicID, availableTopicIDs(opts.subjectGradeID, chunks))
+		}
+		fmt.Printf("Filtered to %d chunk(s) matching topic %s\n", len(filtered), opts.filterTopicID)
+		chunks = filtered
+	}
+
 	result, err := pipeline.ExecuteBulk(cmd.Context(), pipeline.BulkRequest{
 		Chunks:         chunks,
-		SyllabusID:     syllabusID,
-		SubjectGradeID: subjectGradeID,
-		Mode:           mode,
+		SyllabusID:     opts.syllabusID,
+		SubjectGradeID: opts.subjectGradeID,
+		Mode:           opts.mode,
 		Source:         "cli",
-		Workers:        workers,
+		Workers:        opts.workers,
 		Reporter:       pipeline.NewCLIReporter(),
-		Provider:       reasoningProvider,
+		Provider:       opts.provider,
 	})
 	if err != nil {
 		return fmt.Errorf("bulk import: %w", err)
 	}
 
-	// 5. Write each topic output to a YAML file.
-	// Use the canonical OSS topic ID (e.g. MT4-01) when subjectGradeID is known;
-	// fall back to the heading slug otherwise.
-	// If the file already exists, AI-merge the existing and new content into a
-	// single coherent YAML before writing (no duplicate documents in the file).
+	return writeImportResults(cmd.Context(), result.Topics, opts.provider, importWriteOpts{
+		subjectGradeID: opts.subjectGradeID,
+		filterTopicID:  opts.filterTopicID,
+		force:          opts.force,
+		topicsDir:      opts.topicsDir,
+		processedCount: result.ProcessedChunks,
+		totalCount:     len(chunks),
+		duration:       result.Duration,
+		errors:         result.Errors,
+	})
+}
+
+// importWholeOpts holds options for whole-PDF import mode.
+type importWholeOpts struct {
+	syllabusID     string
+	subjectGradeID string
+	filterTopicID  string
+	fromText       string
+	fromFile       string
+	mode           pipeline.ExecutionMode
+	force          bool
+	topicsDir      string
+	repoPath       string
+	provider       ai.Provider
+}
+
+// runImportWholeMode sends the entire PDF content to the AI as context,
+// using the reasoning model's large context window. This is more robust than
+// chunk mode because the AI sees the full document and can cross-reference
+// topics, prerequisites, and learning areas.
+func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) error {
+	fmt.Println("Whole-PDF mode: sending entire document to AI")
+
+	// Resolve topic name reference text (--from-text or --from-file).
+	topicRefText, err := resolveSourceText(opts.fromFile, opts.fromText)
+	if err != nil {
+		return fmt.Errorf("reading topic reference: %w", err)
+	}
+
+	// Load scaffold topic references if a scaffold exists.
+	scaffoldTopics := loadScaffoldTopics(opts.topicsDir)
+	if len(scaffoldTopics) > 0 {
+		fmt.Printf("Found %d scaffold topic stubs as reference\n", len(scaffoldTopics))
+	}
+
+	// Estimate tokens and warn if the PDF is very large.
+	estimatedTokens := len(text) / 4
+	fmt.Printf("Estimated input: ~%d tokens\n", estimatedTokens)
+
+	// Determine max output tokens from the reasoning model.
+	maxOutputTokens := 16384 // reasonable default
+	if rp, ok := opts.provider.(*ai.ReasoningProvider); ok {
+		models := rp.Models()
+		for _, m := range models {
+			if m.MaxTokens > 0 {
+				// Use a fraction of the model's context for output;
+				// the rest is consumed by the input PDF.
+				candidate := m.MaxTokens - estimatedTokens
+				if candidate > maxOutputTokens {
+					maxOutputTokens = candidate
+				}
+				break
+			}
+		}
+	}
+	// Cap output tokens at a practical ceiling.
+	if maxOutputTokens > 65536 {
+		maxOutputTokens = 65536
+	}
+	if maxOutputTokens < 4096 {
+		maxOutputTokens = 4096
+	}
+
+	// Build metadata for the prompt.
+	subjectID := opts.subjectGradeID
+	if subjectID == "" {
+		subjectID = opts.syllabusID
+	}
+	countryID := countryFromSubject(subjectID)
+	language := languageForCountry(countryID)
+	prefix := subjectPrefix(subjectID)
+	grade := gradeNumber(subjectID)
+
+	// Build topic reference section for the prompt.
+	var topicRefSection string
+	if len(scaffoldTopics) > 0 {
+		var sb strings.Builder
+		sb.WriteString("KNOWN TOPICS (from scaffold — use these IDs and match to content in the document):\n")
+		for _, t := range scaffoldTopics {
+			sb.WriteString(fmt.Sprintf("  - %s: %q", t.ID, t.Name))
+			if t.NameEn != "" && t.NameEn != t.Name {
+				sb.WriteString(fmt.Sprintf(" (%s)", t.NameEn))
+			}
+			sb.WriteString("\n")
+		}
+		topicRefSection = sb.String()
+	}
+	if topicRefText != "" {
+		topicRefSection += "\nTOPIC NAME REFERENCE (use these as hints to identify topics in the document):\n" + topicRefText + "\n"
+	}
+
+	// Build the prompt.
+	prompt := buildWholePDFPrompt(text, wholePDFPromptOpts{
+		syllabusID:      opts.syllabusID,
+		subjectGradeID:  opts.subjectGradeID,
+		countryID:       countryID,
+		language:        language,
+		prefix:          prefix,
+		grade:           grade,
+		topicRefSection: topicRefSection,
+		scaffoldTopics:  scaffoldTopics,
+		filterTopicID:   opts.filterTopicID,
+	})
+
+	fmt.Printf("Calling AI with ~%d input tokens, max %d output tokens...\n", estimatedTokens, maxOutputTokens)
+
+	start := time.Now()
+	resp, err := opts.provider.Complete(cmd.Context(), ai.CompletionRequest{
+		Messages: []ai.Message{
+			{Role: "system", Content: "You are a curriculum analysis assistant. Extract structured learning content from source documents and generate OSS-format YAML."},
+			{Role: "user", Content: prompt},
+		},
+		MaxTokens:   maxOutputTokens,
+		Temperature: 0.3,
+	})
+	if err != nil {
+		return fmt.Errorf("AI completion: %w", err)
+	}
+	duration := time.Since(start)
+	fmt.Printf("AI responded in %s (%d input tokens, %d output tokens)\n",
+		duration.Round(time.Second), resp.InputTokens, resp.OutputTokens)
+
+	// Parse the multi-topic YAML output into individual topic results.
+	topics := parseWholePDFOutput(resp.Content, opts.subjectGradeID, prefix, grade)
+	if len(topics) == 0 {
+		return fmt.Errorf("AI returned no parseable topics — try chunk mode with --chunk")
+	}
+	fmt.Printf("Extracted %d topics from AI response\n", len(topics))
+
+	return writeImportResults(cmd.Context(), topics, opts.provider, importWriteOpts{
+		subjectGradeID: opts.subjectGradeID,
+		filterTopicID:  opts.filterTopicID,
+		force:          opts.force,
+		topicsDir:      opts.topicsDir,
+		processedCount: len(topics),
+		totalCount:     len(topics),
+		duration:       duration,
+		errors:         nil,
+	})
+}
+
+// importWriteOpts holds options shared by both import modes for writing results.
+type importWriteOpts struct {
+	subjectGradeID string
+	filterTopicID  string
+	force          bool
+	topicsDir      string
+	processedCount int
+	totalCount     int
+	duration       time.Duration
+	errors         []error
+}
+
+// writeImportResults writes topic results to YAML files, merging with existing content
+// when appropriate. This is shared by both chunk and whole-PDF import modes.
+func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, provider ai.Provider, opts importWriteOpts) error {
 	written := 0
 	merged := 0
-	for _, tr := range result.Topics {
+	for _, tr := range topics {
 		if tr.Err != nil || strings.TrimSpace(tr.Output) == "" {
 			continue
 		}
 		var fileID string
-		if subjectGradeID != "" {
-			fileID = topicFileID(subjectGradeID, tr.Heading, tr.ChunkIndex)
+		if opts.subjectGradeID != "" {
+			fileID = topicFileID(opts.subjectGradeID, tr.Heading, tr.ChunkIndex)
 		} else {
 			slug := importSlug(tr.Heading)
 			if slug == "" {
@@ -1064,16 +1291,15 @@ func runImport(cmd *cobra.Command, _ []string) error {
 			fileID = slug
 		}
 
-		// Skip topics that don't match --topic-id filter
-		if filterTopicID != "" && fileID != filterTopicID {
+		// Skip topics that don't match --topic-id filter.
+		if opts.filterTopicID != "" && fileID != opts.filterTopicID {
 			continue
 		}
 
-		outPath := filepath.Join(topicsDir, fileID+".yaml")
+		outPath := filepath.Join(opts.topicsDir, fileID+".yaml")
 
 		if existingData, readErr := os.ReadFile(outPath); readErr == nil {
-			if force {
-				// --force: overwrite existing file with new content directly.
+			if opts.force {
 				if err := os.WriteFile(outPath, []byte(tr.Output), 0644); err != nil {
 					fmt.Fprintf(os.Stderr, "  ⚠ writing %s: %v\n", outPath, err)
 					continue
@@ -1081,9 +1307,8 @@ func runImport(cmd *cobra.Command, _ []string) error {
 				fmt.Printf("  replaced: %s\n", outPath)
 				merged++
 			} else {
-				// Default: use AI to merge existing + new content.
 				fmt.Printf("  merging: %s\n", outPath)
-				mergedContent, mergeErr := mergeTopicYAML(cmd.Context(), reasoningProvider, string(existingData), tr.Output, tr.Heading)
+				mergedContent, mergeErr := mergeTopicYAML(ctx, provider, string(existingData), tr.Output, tr.Heading)
 				if mergeErr != nil {
 					fmt.Fprintf(os.Stderr, "  ⚠ AI merge failed for %s: %v — skipping\n", outPath, mergeErr)
 					continue
@@ -1096,7 +1321,6 @@ func runImport(cmd *cobra.Command, _ []string) error {
 				merged++
 			}
 		} else {
-			// File does not exist — create fresh.
 			if err := os.WriteFile(outPath, []byte(tr.Output), 0644); err != nil {
 				fmt.Fprintf(os.Stderr, "  ⚠ writing %s: %v\n", outPath, err)
 				continue
@@ -1106,14 +1330,13 @@ func runImport(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// 6. Summary
-	fmt.Printf("\nProcessed %d/%d chunks in %s — wrote %d new, merged %d existing file(s) in %s\n",
-		result.ProcessedChunks, len(chunks), result.Duration.Round(time.Second),
-		written, merged, topicsDir)
+	fmt.Printf("\nProcessed %d/%d topics in %s — wrote %d new, merged %d existing file(s) in %s\n",
+		opts.processedCount, opts.totalCount, opts.duration.Round(time.Second),
+		written, merged, opts.topicsDir)
 
-	if len(result.Errors) > 0 {
-		fmt.Fprintf(os.Stderr, "%d chunks failed:\n", len(result.Errors))
-		for _, e := range result.Errors {
+	if len(opts.errors) > 0 {
+		fmt.Fprintf(os.Stderr, "%d topics failed:\n", len(opts.errors))
+		for _, e := range opts.errors {
 			fmt.Fprintf(os.Stderr, "  ⚠ %s\n", e)
 		}
 	}
@@ -1470,6 +1693,274 @@ func importSlug(heading string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// countryFromSubject extracts the country portion from a subject ID.
+// e.g. "malaysia-kssm-matematik-tingkatan-4" → "malaysia"
+func countryFromSubject(id string) string {
+	if idx := strings.Index(id, "-"); idx > 0 {
+		return id[:idx]
+	}
+	return id
+}
+
+// languageForCountry returns the BCP 47 language code for a country's MOE language.
+func languageForCountry(countryID string) string {
+	langs := map[string]string{
+		"malaysia":  "ms",
+		"indonesia": "id",
+		"japan":     "ja",
+		"uae":       "ar",
+		"thailand":  "th",
+		"vietnam":   "vi",
+		"china":     "zh-hans",
+		"korea":     "ko",
+	}
+	if l, ok := langs[countryID]; ok {
+		return l
+	}
+	return "en"
+}
+
+// scaffoldTopic holds a topic reference loaded from scaffold stubs.
+type scaffoldTopic struct {
+	ID     string
+	Name   string
+	NameEn string
+}
+
+// loadScaffoldTopics reads existing scaffold topic stubs from the topics directory
+// and returns their IDs and names for use as AI reference.
+func loadScaffoldTopics(topicsDir string) []scaffoldTopic {
+	entries, err := os.ReadDir(topicsDir)
+	if err != nil {
+		return nil
+	}
+
+	var topics []scaffoldTopic
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		// Skip companion files (teaching, assessments, examples).
+		if strings.Contains(e.Name(), ".teaching.") ||
+			strings.Contains(e.Name(), ".assessments.") ||
+			strings.Contains(e.Name(), ".examples.") {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(topicsDir, e.Name()))
+		if err != nil {
+			continue
+		}
+
+		// Extract id, name, and name_en from the YAML stub.
+		t := scaffoldTopic{}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "id:") {
+				t.ID = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+			} else if strings.HasPrefix(line, "name:") && !strings.HasPrefix(line, "name_en:") {
+				t.Name = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "name:")), "\"")
+			} else if strings.HasPrefix(line, "name_en:") {
+				t.NameEn = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "name_en:")), "\"")
+			}
+		}
+		if t.ID != "" {
+			topics = append(topics, t)
+		}
+	}
+
+	// Sort by ID for deterministic ordering.
+	sort.Slice(topics, func(i, j int) bool { return topics[i].ID < topics[j].ID })
+	return topics
+}
+
+// wholePDFPromptOpts holds parameters for building the whole-PDF import prompt.
+type wholePDFPromptOpts struct {
+	syllabusID      string
+	subjectGradeID  string
+	countryID       string
+	language        string
+	prefix          string
+	grade           string
+	topicRefSection string
+	scaffoldTopics  []scaffoldTopic
+	filterTopicID   string
+}
+
+// buildWholePDFPrompt constructs the prompt for whole-PDF import mode.
+// The entire PDF text is included as context so the AI can cross-reference
+// topics, prerequisites, and learning areas across the full document.
+func buildWholePDFPrompt(pdfText string, opts wholePDFPromptOpts) string {
+	subjectID := opts.subjectGradeID
+	if subjectID == "" {
+		subjectID = opts.syllabusID
+	}
+
+	// Build topic ID instructions.
+	topicIDInstruction := fmt.Sprintf(
+		"Topic IDs MUST follow the format: %s%s-NN (e.g. %s%s-01, %s%s-02, ...)",
+		opts.prefix, opts.grade, opts.prefix, opts.grade, opts.prefix, opts.grade,
+	)
+	if len(opts.scaffoldTopics) > 0 {
+		topicIDInstruction = "Use the EXACT topic IDs from the KNOWN TOPICS list below. Match each topic in the document to the closest scaffold topic by name."
+	}
+
+	filterInstruction := ""
+	if opts.filterTopicID != "" {
+		filterInstruction = fmt.Sprintf("\n\nIMPORTANT: Only extract and generate YAML for topic %s. Ignore all other topics.", opts.filterTopicID)
+	}
+
+	prompt := fmt.Sprintf(`You are extracting ALL curriculum topics from an educational document and generating OSS-format YAML files.
+
+FULL DOCUMENT CONTENT:
+%s
+
+%s
+METADATA:
+- syllabus_id: %s
+- subject_grade_id: %s
+- country_id: %s
+- language: %s
+- %s%s
+
+INSTRUCTIONS:
+For EACH topic found in the document, generate a complete YAML document. Separate each topic with a line containing only "---".
+
+Each topic YAML must contain:
+id: <topic_id>
+official_ref: "FILL"        # chapter/section code as printed in document (e.g. "1.0", "Bab 1")
+name: "FILL"                # topic name in the document language (%s)
+name_en: "FILL"             # English translation of name
+subject_id: %s
+syllabus_id: %s
+country_id: %s
+language: %s
+difficulty: FILL             # beginner | intermediate | advanced
+tier: core
+
+learning_objectives:
+  - id: FILL                 # standard code from document (e.g. 1.1.1)
+    text: "FILL"             # objective text in document language (%s)
+    text_en: "FILL"          # English translation
+    bloom: FILL              # remember | understand | apply | analyze | evaluate | create
+
+prerequisites:
+  required: []
+  recommended: []
+
+bloom_levels:
+  - FILL                     # list all distinct bloom levels used
+
+mastery:
+  minimum_score: 0.75
+  assessment_count: 3
+  spaced_repetition:
+    initial_interval_days: 3
+    multiplier: 2.5
+
+ai_teaching_notes: "<topic_id>.teaching.md"
+quality_level: 1
+provenance: ai-assisted
+
+RULES:
+- Output ONLY valid YAML — no markdown fences, no explanatory text before or after
+- Separate each topic with a line containing ONLY "---"
+- Extract ALL topics from the document, not just the first few
+- Extract ALL learning objectives from each topic section
+- name MUST be in the document language (%s), name_en MUST be English
+- learning_objectives text MUST be in the document language, text_en MUST be English
+- bloom levels: remember | understand | apply | analyze | evaluate | create
+- Infer bloom levels from verbs: list/recall/define → remember, explain/describe → understand, solve/calculate → apply, differentiate/examine → analyze, assess/justify → evaluate, design/develop → create
+- Prerequisites should reference topic IDs from this same document where applicable`,
+		pdfText,
+		opts.topicRefSection,
+		opts.syllabusID, subjectID, opts.countryID, opts.language,
+		topicIDInstruction, filterInstruction,
+		opts.language,
+		subjectID, opts.syllabusID, opts.countryID, opts.language,
+		opts.language,
+		opts.language,
+	)
+
+	return prompt
+}
+
+// parseWholePDFOutput splits the AI's multi-topic YAML response into individual
+// TopicResult entries. Topics are separated by "---" lines.
+func parseWholePDFOutput(output string, subjectGradeID, prefix, grade string) []pipeline.TopicResult {
+	output = pipeline.StripCodeFences(output)
+
+	// Split by YAML document separator.
+	docs := strings.Split(output, "\n---")
+	var results []pipeline.TopicResult
+
+	for i, doc := range docs {
+		doc = strings.TrimSpace(doc)
+		if doc == "" || doc == "---" {
+			continue
+		}
+		// Remove leading "---" if present (first document).
+		doc = strings.TrimPrefix(doc, "---")
+		doc = strings.TrimSpace(doc)
+		if doc == "" {
+			continue
+		}
+
+		// Sanitize YAML quoting for LaTeX.
+		doc = pipeline.SanitizeYAMLQuoting(doc)
+
+		// Extract topic ID and name from the YAML for heading/metadata.
+		topicID, topicName := extractTopicIDAndName(doc)
+
+		// Build heading from topic ID or name.
+		heading := topicName
+		if heading == "" {
+			heading = topicID
+		}
+		if heading == "" {
+			heading = fmt.Sprintf("topic-%02d", i+1)
+		}
+
+		// If the YAML has a topic ID, use it directly as the heading
+		// so topicFileID() doesn't need to re-derive it.
+		if topicID != "" {
+			heading = topicID + " " + topicName
+		}
+
+		// Ensure required fields.
+		if topicID != "" {
+			doc = pipeline.EnsureTopicFields(doc, topicID)
+		}
+
+		results = append(results, pipeline.TopicResult{
+			ChunkIndex: i,
+			Heading:    heading,
+			Output:     doc,
+		})
+	}
+
+	return results
+}
+
+// extractTopicIDAndName extracts the id and name fields from a YAML string
+// using simple line scanning (avoids full YAML parse for robustness).
+func extractTopicIDAndName(yamlContent string) (id, name string) {
+	for _, line := range strings.Split(yamlContent, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "id:") && !strings.Contains(line, "_") {
+			id = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+			id = strings.Trim(id, "\"")
+		} else if strings.HasPrefix(line, "name:") && !strings.HasPrefix(line, "name_en:") {
+			name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+			name = strings.Trim(name, "\"")
+		}
+		if id != "" && name != "" {
+			break
+		}
+	}
+	return id, name
 }
 
 // mergeTopicYAML uses AI to merge an existing OSS topic YAML file with newly

@@ -115,7 +115,7 @@ func TestSupportedReasoningModels(t *testing.T) {
 	expected := []string{
 		"deepseek/deepseek-r1",
 		"moonshotai/kimi-k2.5",
-		"qwen/qwen3.5",
+		"qwen/qwen3.5-flash-02-23",
 		"openai/o3-mini",
 	}
 

@@ -189,6 +189,13 @@ Extract curriculum topics from a PDF and generate structured OSS YAML files.
 oss import --pdf <file> --syllabus <id> [flags]
 ```
 
+**Two import modes:**
+
+| Mode | When | How it works |
+|------|------|-------------|
+| **Whole-PDF** (default) | No `--chunk` flag | Sends the entire PDF to the reasoning model in a single call. The AI sees the full document and can cross-reference topics, prerequisites, and learning areas. More robust for most documents. |
+| **Chunk** | `--chunk <keyword>` | Splits the PDF by the given keyword (e.g. `CHAPTER`) and processes each chunk in parallel with separate AI calls. Useful for very large documents or DSKP-format curricula. |
+
 **Flags**
 
 | Flag | Default | Description |
@@ -196,8 +203,11 @@ oss import --pdf <file> --syllabus <id> [flags]
 | `--pdf` | *(required)* | Path to the PDF file |
 | `--syllabus` | *(required)* | Target syllabus ID, e.g. `malaysia-kssm` |
 | `--subject-grade` | `""` | Subject grade ID for correct file naming, e.g. `malaysia-kssm-matematik-tingkatan-4`. When set, output files follow the OSS topic ID convention (`MT4-01.yaml`, `PH12-03.yaml`, etc.) and are placed under `{subject_id}/{subject_grade_id}/topics/` |
-| `--workers` | `3` | Number of parallel AI workers — each processes one topic concurrently |
-| `--chunk-size` | `2000` | Max tokens per chunk for the generic chunker. Lower values force more splits on dense documents |
+| `--chunk` | `""` | Enable chunk mode: split PDF by this keyword (e.g. `CHAPTER`) and process chunks in parallel |
+| `--from-text` | `""` | Topic name reference text (one topic per line) — used as hints for the AI in whole-PDF mode |
+| `--from-file` | `""` | Path to file containing topic name references (alternative to `--from-text`) |
+| `--workers` | `3` | Number of parallel AI workers (chunk mode only) |
+| `--chunk-size` | `2000` | Max tokens per chunk (chunk mode only) |
 | `--force` | `false` | **Replace** existing topic files outright. Default (`false`) AI-merges new content into the existing file without losing any objectives |
 | `--pr` | `false` | Create a GitHub PR instead of writing files to the local filesystem |
 | `--topic-id` | | Import only the specified topic (e.g. `MT4-01`) — requires `--subject-grade` |
@@ -209,18 +219,38 @@ oss import --pdf <file> --syllabus <id> [flags]
 oss scaffold subject \
   --syllabus malaysia-kssm \
   --id malaysia-kssm-matematik \
-  --grade-id malaysia-kssm-matematik-tingkatan-4 \
+  --grade-id malaysia-kssm-matematik-tingkatan-1 \
   --country malaysia
 
+# Whole-PDF mode (default) — sends entire PDF to AI
+oss import --pdf Tingkatan-1.pdf \
+           --syllabus malaysia-kssm \
+           --subject-grade malaysia-kssm-matematik-tingkatan-1
+
+# Whole-PDF with topic name hints (helps AI find topics in the document)
+oss import --pdf Tingkatan-1.pdf \
+           --syllabus malaysia-kssm \
+           --subject-grade malaysia-kssm-matematik-tingkatan-1 \
+           --from-text "1. Fungsi
+2. Algebra Linear"
+
+# Topic hints from a file
+oss import --pdf Tingkatan-1.pdf \
+           --syllabus malaysia-kssm \
+           --subject-grade malaysia-kssm-matematik-tingkatan-1 \
+           --from-file topics.txt
+
+# Chunk mode — split by keyword and process in parallel
 oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
            --syllabus malaysia-kssm \
-           --subject-grade malaysia-kssm-matematik-tingkatan-4
+           --subject-grade malaysia-kssm-matematik-tingkatan-4 \
+           --chunk CHAPTER
 
-# More workers for a large document
+# Chunk mode with more workers for a large document
 oss import --pdf textbook.pdf \
            --syllabus india-cbse \
            --subject-grade india-cbse-physics-class-12 \
-           --workers 5
+           --chunk "Chapter " --workers 5
 
 # Re-import from scratch — replace all existing files
 oss import --pdf DSKP.pdf --syllabus malaysia-kssm \
@@ -231,45 +261,74 @@ oss import --pdf DSKP.pdf --syllabus malaysia-kssm \
            --subject-grade malaysia-kssm-matematik-tingkatan-4 --pr
 ```
 
-**What it does**
+**How whole-PDF mode works**
 
 1. Extracts text from the PDF using Go-native `ledongthuc/pdf` (no external dependencies)
-2. **DSKP auto-detection** — if `BIDANG PEMBELAJARAN` / `TAJUK` markers are found (Malaysian KSSM curriculum documents), splits exactly on those boundaries for per-chapter accuracy; otherwise falls back to generic heading-based chunking
-3. Processes each topic in parallel using the configured number of workers
-4. Names output files using the [OSS ID convention](docs/id-conventions.md) — e.g. `MT4-01.yaml` for Matematik Tingkatan 4 Chapter 1, `PH12-03.yaml` for Physics Class 12 Chapter 3
-5. Each generated file includes: `id`, `official_ref`, `name` (MOE language), `name_en` (English translation), `subject_grade_id`, `subject_id`, `syllabus_id`, `country_id`, `language`, `difficulty`, `tier`, `learning_objectives` (with SP codes and Bloom's levels in English), `prerequisites`, `mastery`, `provenance: ai-assisted`
-6. **Existing file handling:**
-   - `--force` not set (default): AI compares the existing file with the newly extracted content and produces a single merged YAML — new objectives are added, duplicates are skipped, identity fields (`id`, `subject_id`, etc.) are preserved
-   - `--force` set: existing file is overwritten with the freshly generated content
+2. If a scaffold exists (from `oss scaffold subject`), loads all topic stubs (ID, name, name_en) as reference — the AI uses these to locate and match topics in the document
+3. If `--from-text` or `--from-file` is provided, includes the topic names as additional hints
+4. Sends the entire PDF content to the reasoning model in a single AI call, using its large context window (131K–200K tokens depending on model)
+5. The AI generates all topic YAMLs in one response, separated by `---`
+6. Each topic YAML is parsed, sanitized, and written to a separate file
+7. Output tokens are limited by the model's context window minus the input size — for very large PDFs, the AI may produce fewer topics per call
+
+**How chunk mode works**
+
+1. Extracts text from the PDF
+2. If DSKP format is detected (`LEARNING AREA` / `CHAPTER` markers), splits on those boundaries; otherwise splits by the `--chunk` keyword and generic headings
+3. Processes each chunk in parallel using the configured number of workers
+4. Each chunk gets its own AI call with a focused prompt
+
+**Shared behavior (both modes)**
+
+- Names output files using the [OSS ID convention](docs/id-conventions.md) — e.g. `MT4-01.yaml` for Matematik Tingkatan 4 Chapter 1, `PH12-03.yaml` for Physics Class 12 Chapter 3
+- Each generated file includes: `id`, `official_ref`, `name` (MOE language), `name_en` (English translation), `subject_grade_id`, `subject_id`, `syllabus_id`, `country_id`, `language`, `difficulty`, `tier`, `learning_objectives` (with SP codes and Bloom's levels in English), `prerequisites`, `mastery`, `provenance: ai-assisted`
+- **Existing file handling:**
+  - `--force` not set (default): AI compares the existing file with the newly extracted content and produces a single merged YAML — new objectives are added, duplicates are skipped, identity fields (`id`, `subject_id`, etc.) are preserved
+  - `--force` set: existing file is overwritten with the freshly generated content
 
 **Using a reasoning model (recommended)**
 
-Set `OSS_AI_REASONING_API_KEY` to route both extraction and merge calls through a reasoning model via [OpenRouter](https://openrouter.ai). This produces significantly better Bloom's level inference and objective extraction for complex documents.
+Set `OSS_AI_REASONING_API_KEY` to route both extraction and merge calls through a reasoning model via [OpenRouter](https://openrouter.ai). This is especially important for whole-PDF mode, which relies on the reasoning model's large context window.
 
 ```bash
 export OSS_AI_REASONING_API_KEY=sk-or-...
 export OSS_AI_REASONING_MODEL=deepseek/deepseek-r1   # optional — this is the default
 
-oss import --pdf DSKP-KSSM-Matematik-Tingkatan-4.pdf \
+# Whole-PDF mode (default)
+oss import --pdf Tingkatan-1.pdf \
            --syllabus malaysia-kssm \
-           --subject-grade malaysia-kssm-matematik-tingkatan-4
+           --subject-grade malaysia-kssm-matematik-tingkatan-1
 ```
 
-Expected output:
+Expected output (whole-PDF mode):
+```
+Using reasoning model: deepseek/deepseek-r1
+Extracting text from Tingkatan-1.pdf...
+Extracted 30112 characters (~7528 tokens)
+Whole-PDF mode: sending entire document to AI
+Found 10 scaffold topic stubs as reference
+Estimated input: ~7528 tokens
+Calling AI with ~7528 input tokens, max 65536 output tokens...
+AI responded in 32s (8201 input tokens, 12450 output tokens)
+Extracted 10 topics from AI response
+  wrote: .../topics/MT1-01.yaml
+  wrote: .../topics/MT1-02.yaml
+  ...
+Processed 10/10 topics in 32s — wrote 10 new, merged 0 existing file(s)
+```
+
+Expected output (chunk mode):
 ```
 Using reasoning model: deepseek/deepseek-r1
 Extracting text from DSKP-KSSM-Matematik-Tingkatan-4.pdf...
-Extracted 30112 characters
-Detected DSKP format: 10 topics (BIDANG PEMBELAJARAN/TAJUK structure)
+Extracted 30112 characters (~7528 tokens)
+Chunk mode: splitting by "CHAPTER"
+Detected DSKP format: 10 topics (LEARNING AREA/CHAPTER structure)
 Split into 10 chunks
-Starting bulk import of 10 items
   [1/10] 1.0 FUNGSI DAN PERSAMAAN KUADRATIK: done
   [2/10] 2.0 POLINOMIAL: done
   ...
-  wrote: .../topics/MT4-01.yaml
-  wrote: .../topics/MT4-02.yaml
-  ...
-Processed 10/10 chunks in 45s — wrote 10 new, merged 0 existing file(s)
+Processed 10/10 topics in 45s — wrote 10 new, merged 0 existing file(s)
 ```
 
 When `OSS_AI_REASONING_API_KEY` is not set, the standard `OSS_AI_PROVIDER` is used as a transparent fallback.

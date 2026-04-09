@@ -4,9 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
+	"strings"
+	"syscall"
+	"time"
 )
 
 // OpenAIProvider implements the Provider interface for OpenAI.
@@ -28,6 +34,9 @@ func NewOpenAIProvider(apiKey string) (*OpenAIProvider, error) {
 		client:  &http.Client{},
 	}, nil
 }
+
+// maxRetries is the number of retry attempts for transient errors.
+const maxRetries = 3
 
 func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	model := req.Model
@@ -57,6 +66,34 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		return CompletionResponse{}, fmt.Errorf("marshaling request: %w", err)
 	}
 
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(attempt) * 5 * time.Second
+			slog.Warn("retrying after transient error",
+				"attempt", attempt, "backoff", backoff, "error", lastErr)
+			select {
+			case <-ctx.Done():
+				return CompletionResponse{}, ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+
+		resp, err := p.doRequest(ctx, jsonBody)
+		if err != nil {
+			if isTransientError(err) {
+				lastErr = err
+				continue
+			}
+			return CompletionResponse{}, err
+		}
+		return resp, nil
+	}
+	return CompletionResponse{}, fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
+}
+
+// doRequest performs a single HTTP request to the chat completions endpoint.
+func (p *OpenAIProvider) doRequest(ctx context.Context, jsonBody []byte) (CompletionResponse, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/chat/completions", bytes.NewReader(jsonBody))
 	if err != nil {
 		return CompletionResponse{}, err
@@ -66,7 +103,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return CompletionResponse{}, fmt.Errorf("OpenAI API call: %w", err)
+		return CompletionResponse{}, fmt.Errorf("API call: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -75,8 +112,15 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		return CompletionResponse{}, fmt.Errorf("reading response: %w", err)
 	}
 
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		return CompletionResponse{}, &transientHTTPError{
+			statusCode: resp.StatusCode,
+			body:       string(respBody),
+		}
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return CompletionResponse{}, fmt.Errorf("OpenAI API error %d: %s", resp.StatusCode, string(respBody))
+		return CompletionResponse{}, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result struct {
@@ -96,7 +140,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 	}
 
 	if len(result.Choices) == 0 {
-		return CompletionResponse{}, fmt.Errorf("OpenAI returned no choices")
+		return CompletionResponse{}, fmt.Errorf("API returned no choices")
 	}
 
 	return CompletionResponse{
@@ -105,6 +149,47 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (C
 		InputTokens:  result.Usage.PromptTokens,
 		OutputTokens: result.Usage.CompletionTokens,
 	}, nil
+}
+
+// transientHTTPError represents a retryable HTTP status (5xx, 429).
+type transientHTTPError struct {
+	statusCode int
+	body       string
+}
+
+func (e *transientHTTPError) Error() string {
+	return fmt.Sprintf("API error %d: %s", e.statusCode, e.body)
+}
+
+// isTransientError returns true for errors that are worth retrying:
+// connection resets, timeouts, DNS failures, and HTTP 5xx/429.
+func isTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// HTTP 5xx or 429
+	var httpErr *transientHTTPError
+	if errors.As(err, &httpErr) {
+		return true
+	}
+	// Connection reset by peer
+	if errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+	// Network-level errors (timeout, DNS, connection refused)
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	// Wrapped errors — check the error string as a fallback for connection resets
+	// that may not unwrap cleanly through all layers.
+	errStr := err.Error()
+	for _, substr := range []string{"connection reset by peer", "broken pipe", "EOF", "connection refused"} {
+		if strings.Contains(errStr, substr) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *OpenAIProvider) StreamComplete(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error) {

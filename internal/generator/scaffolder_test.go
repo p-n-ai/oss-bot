@@ -220,6 +220,68 @@ func TestScaffoldSubject_RequiresIDs(t *testing.T) {
 	})
 }
 
+func TestScaffoldSubject_CopiesSchemas(t *testing.T) {
+	// Create a temporary global schema directory with schema files
+	globalSchemaDir := t.TempDir()
+	schemaNames := []string{"assessments", "concept", "examples", "subject", "syllabus", "topic"}
+	for _, name := range schemaNames {
+		content := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","title":"` + name + `"}`
+		os.WriteFile(filepath.Join(globalSchemaDir, name+".schema.json"), []byte(content), 0o644)
+	}
+
+	mock := ai.NewMockProvider("NAME: Mathematics\nTOPICS:\n- Algebra")
+	s := generator.NewScaffolder(mock)
+
+	result, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{
+		SyllabusID:      "test-syllabus",
+		SubjectID:       "test-syllabus-math",
+		SubjectGradeID:  "test-syllabus-math-grade-1",
+		Country:         "test",
+		SourceText:      "Math syllabus",
+		GlobalSchemaDir: globalSchemaDir,
+	})
+	if err != nil {
+		t.Fatalf("ScaffoldSubject() error = %v", err)
+	}
+
+	// Verify all 6 schema files are in the result
+	for _, name := range schemaNames {
+		expectedPath := filepath.Join("curricula", "test", "test-syllabus", "test-syllabus-math", "schemas", name+".schema.json")
+		content, ok := result.Files[expectedPath]
+		if !ok {
+			t.Errorf("missing schema file in result: %s", expectedPath)
+			continue
+		}
+		if !strings.Contains(content, `"title":"`+name+`"`) {
+			t.Errorf("schema file %s has unexpected content: %s", expectedPath, content)
+		}
+	}
+}
+
+func TestScaffoldSubject_NoSchemaDir(t *testing.T) {
+	mock := ai.NewMockProvider("NAME: Mathematics\nTOPICS:\n- Algebra")
+	s := generator.NewScaffolder(mock)
+
+	// No GlobalSchemaDir set — should still succeed without schema files
+	result, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{
+		SyllabusID:     "test-syllabus",
+		SubjectID:      "test-syllabus-math",
+		SubjectGradeID: "test-syllabus-math-grade-1",
+		Country:        "test",
+		SourceText:     "Math syllabus",
+	})
+	if err != nil {
+		t.Fatalf("ScaffoldSubject() error = %v", err)
+	}
+
+	// Verify no schema files in result
+	for path := range result.Files {
+		if strings.Contains(path, "schemas/") {
+			t.Errorf("unexpected schema file in result: %s", path)
+		}
+	}
+}
+
 func TestScaffoldWriteFiles(t *testing.T) {
 	s := generator.NewScaffolder(nil)
 	result, err := s.ScaffoldSyllabus(context.Background(), generator.ScaffoldRequest{
