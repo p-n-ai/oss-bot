@@ -155,12 +155,19 @@ oss scaffold subject \
   --country malaysia
 ```
 
-The `scaffold subject` command creates the three-level directory structure:
+The `scaffold subject` command creates the three-level directory structure and copies global JSON Schemas into the subject for per-subject customization:
 
 ```
 curricula/malaysia/malaysia-kssm/
 └── malaysia-kssm-matematik/                         # subject (grade-less)
     ├── subject.yaml                                 # id: malaysia-kssm-matematik
+    ├── schemas/                                     # per-subject schema overrides
+    │   ├── assessments.schema.json
+    │   ├── concept.schema.json
+    │   ├── examples.schema.json
+    │   ├── subject.schema.json
+    │   ├── syllabus.schema.json
+    │   └── topic.schema.json
     └── malaysia-kssm-matematik-tingkatan-3/         # subject_grade (with grade)
         ├── subject-grade.yaml                    # id: malaysia-kssm-matematik-tingkatan-3
         └── topics/
@@ -168,6 +175,8 @@ curricula/malaysia/malaysia-kssm/
             ├── MT3-02.yaml
             └── ...
 ```
+
+The schemas are copied from the global `schema/` directory. You can customize them per-subject (e.g., different assessment structures for English vs Math). Both `generate` and `validate` commands resolve schemas per-file: subject-level override first, then global fallback.
 
 **Flags**
 
@@ -355,7 +364,7 @@ oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matemati
 oss generate all --syllabus malaysia-kssm --subject-grade malaysia-kssm-matematik-tingkatan-4 --dry-run
 ```
 
-Generated files are written to the local OSS clone. Review them, then commit and PR.
+Generated content is validated against the resolved JSON Schema (subject-level override or global fallback). If validation fails, the pipeline retries once with error feedback. Generated files are written to the local OSS clone. Review them, then commit and PR.
 
 **Batch Generate (Post-Import)**
 
@@ -489,7 +498,7 @@ A topic's YAML may **claim** a quality level via the `quality_level` field, but 
 
 #### Validate
 
-Check all YAML files against the schemas:
+Check all YAML files against the schemas. Schemas are resolved per-file: subject-level overrides (`{subjectID}/schemas/`) take priority, with automatic fallback to the global `schema/` directory:
 
 ```bash
 # Validate entire repository
@@ -514,7 +523,7 @@ oss validate --file topic.yaml
 |------|---------|-------------|
 | `[path]` | `$OSS_REPO_PATH` or `.` | Positional argument — directory to scan |
 | `--file`, `-f` | | Validate a single file |
-| `--schema-dir`, `-s` | auto-detect | Path to schema directory |
+| `--schema-dir`, `-s` | auto-detect | Path to global schema directory (subject-level overrides are always checked first) |
 | `--syllabus` | | Syllabus ID (e.g. `malaysia-kssm`) |
 | `--subject-grade` | | Subject grade ID (e.g. `malaysia-kssm-matematik-tingkatan-5`) |
 | `--topic-id` | | Validate only the specified topic (e.g. `MT2-12`) — requires `--syllabus` and `--subject-grade` |
@@ -677,6 +686,7 @@ oss-bot/
 │   │   └── merge.go             # Content merge logic
 │   ├── validator/               # Schema validation
 │   │   ├── validator.go         # JSON Schema engine
+│   │   ├── resolver.go          # Per-subject schema resolution
 │   │   ├── bloom.go             # Bloom's taxonomy checks
 │   │   ├── prerequisites.go     # Prerequisite graph integrity
 │   │   ├── duplicates.go        # Duplicate content detection

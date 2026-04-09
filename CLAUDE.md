@@ -72,6 +72,7 @@ oss-bot/
 │   │   └── merge.go                 # Content merge (append + dedup assessments, additive teaching notes)
 │   ├── validator/                   # Schema validation
 │   │   ├── validator.go             # JSON Schema engine
+│   │   ├── resolver.go              # Per-subject schema resolution (subject override + global fallback)
 │   │   ├── bloom.go                 # Bloom's taxonomy checks
 │   │   ├── prerequisites.go         # Prerequisite graph cycle detection
 │   │   ├── duplicates.go            # Duplicate content detection
@@ -194,15 +195,23 @@ result, err := pipeline.Execute(ctx, pipeline.Request{
 - `GitHubWriter` — creates PRs via GitHub API (Bot, Web Portal)
 
 ### Content Generation Pipeline
-The pipeline executes 6 stages regardless of interface:
+The pipeline executes 7 stages regardless of interface:
 1. **Context Builder** — loads topic YAML, related topics, schema rules, style examples (~8K tokens)
-2. **AI Generation** — injects context into prompt template, calls AI provider
-3. **Content Merge** — compare new vs existing, additive by default
-4. **Progress Reporting** — real-time status updates
-5. **Validation** — JSON Schema check, Bloom's taxonomy, prerequisite graph, duplicate detection
-6. **Output** — based on execution mode: write files, open PR, or return preview
+2. **AI Generation** — injects context + resolved JSON Schema into prompt template, calls AI provider
+3. **Schema Validation** — validates generated YAML against the resolved schema (per-subject override or global fallback). If validation fails, retries once with error feedback injected into the prompt
+4. **Content Merge** — compare new vs existing, additive by default
+5. **Progress Reporting** — real-time status updates
+6. **Bloom Validation** — Bloom's taxonomy level checks on learning objectives
+7. **Output** — based on execution mode: write files, open PR, or return preview
 
-If validation fails, the pipeline retries once with error feedback before reporting failure.
+### Per-Subject Schema Resolution
+Each subject can have its own JSON Schema overrides in a `schemas/` directory. Resolution is per-schema-file:
+1. Check `{subjectID}/schemas/{type}.schema.json` (subject-level override)
+2. If not found, fall back to `{repoPath}/schema/{type}.schema.json` (global)
+
+This allows different subjects (e.g., English vs Math) to have different schema requirements while sharing a common base. The `scaffold subject` command copies the 6 global schemas into the new subject's `schemas/` directory for customization.
+
+Schema files: `assessments.schema.json`, `concept.schema.json`, `examples.schema.json`, `subject.schema.json`, `syllabus.schema.json`, `topic.schema.json`.
 
 **Contribution types:** `teaching_notes`, `assessments`, `examples`, `topic_enrich`
 
