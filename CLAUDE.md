@@ -362,7 +362,7 @@ go test -run TestValidateSchema ./internal/validator/...
 ## Development Notes
 
 - **Build order priority:** Validator -> Generator -> GitHub Bot -> Web Portal
-- **Week 4 complete** — CLI fully functional with validate, generate, quality, translate. 58 tests passing across 5 packages (validator, ai, generator, pipeline, output).
+- **Weeks 4-5 complete** — CLI fully functional with validate, generate, quality, translate, scaffold, import. GitHub bot operational. 188 tests passing across 8 packages (validator, ai, generator, pipeline, parser, github, api, cmd/oss). Per-subject schema support across scaffold, generate, and validate commands.
 - The AI provider interface is shared with P&AI Bot; keep implementations compatible
 - All PRs from the bot require human review before merging
 - Schema validation must block invalid content — never submit invalid YAML

@@ -78,7 +78,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W4D20-3` | Test full pipeline: generate teaching notes + assessments + examples + translation for 1 Form 2 topic. Compare AI-generated vs manually-written quality. | 🤖🧑 | ✅ | E2E test covers all 4 content types through pipeline |
 | `B-W4D20-4` | 🧑 Education Lead evaluates: is AI-generated content quality acceptable with light editing? What needs to improve in prompts? | 🧑 Education Lead | ✅ | Reviewed — all good, no prompt changes needed |
 
-**Week 4 Output:** Working CLI with validate, generate, quality, translate commands. Shared pipeline orchestrator (`internal/pipeline`) and output writers (`internal/output`) — all future interfaces (Bot, Web) will call the same `pipeline.Execute()`. Prompt templates for KSSM content.
+**Week 4 Output:** Working CLI with validate, generate, quality, translate commands. Shared pipeline orchestrator (`internal/pipeline`) and output writers (`internal/output`) — all future interfaces (Bot, Web) will call the same `pipeline.Execute()`. Prompt templates for curriculum content (curriculum-agnostic).
 
 ---
 
@@ -164,11 +164,18 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 
 ## WEEK 6 — WEB PORTAL + LAUNCH
 
-### Day 26 (Mon) — Web Portal Scaffold
+### Day 26 (Mon) — Web Portal Scaffold + Per-Subject Schema Support
+
+> **Updated (2026-04-09):** Added per-subject schema support tasks (`B-W6D26-5` through `B-W6D26-9`). Different subjects (e.g., English vs Math) may need different JSON Schema constraints. Schema resolution is per-file: subject-level override first, global fallback second.
 
 | Task ID | Task | Owner | Status | Remark |
 |---------|------|-------|--------|--------|
 | `B-W6D26-0` | `oss generate all --subject-grade` — discover all topics under a subject-grade directory and generate teaching-notes, assessments, examples, and topic enrichment in parallel using worker pool. Flags: `--subject-grade`, `--workers`, `--dry-run`. Includes `discoverTopicIDs` helper + tests. Topic enrichment adds Level 2 fields (`teaching.sequence`, `teaching.common_misconceptions`, `engagement_hooks`) to each topic YAML via AI. | 🤖 | ✅ | Post-import batch generation for all 4 content types |
+| `B-W6D26-5` | `internal/validator/resolver.go` — `SchemaResolver` with two-tier schema resolution: per-subject override (`{subjectID}/schemas/`) + global fallback (`schema/`). `FindSubjectDir()` walks up from any YAML file to find the subject directory. `SubjectSchemasDir()` checks for `schemas/` subfolder. Resolution is per-schema-file (mix-and-match). | 🤖 | ✅ | TDD: 10 resolver tests passing |
+| `B-W6D26-6` | Extend `internal/validator/validator.go` — `NewWithResolver()` constructor, `ValidateFileResolved()`, `ValidateContentResolved()` (in-memory validation for generate pipeline), `ValidateDirResolved()`. Schema caching by absolute path. Existing `New()`/`ValidateFile()`/`ValidateDir()` unchanged for backward compatibility. | 🤖 | ✅ | TDD: 7 new tests; 31 total validator tests passing |
+| `B-W6D26-7` | `oss scaffold subject` copies 6 global schema files into `{subjectID}/schemas/` for per-subject customization. Added `GlobalSchemaDir` to `ScaffoldRequest`. Silently skips if no global schemas exist. | 🤖 | ✅ | TDD: 2 new scaffolder tests |
+| `B-W6D26-8` | Schema-aware generation: inject resolved JSON Schema into AI prompts (assessments, examples, topic enrichment) via `genCtx.SchemaRules`. Post-generation validation against resolved schema with single retry on failure (error feedback injected via existing `ValidationFeedback` mechanism). | 🤖 | ✅ | TDD: 5 new tests (prompt injection, retry, schema type mapping) |
+| `B-W6D26-9` | `oss validate` uses resolver-based validation: `NewWithResolver()` replaces `New()`, `ValidateFileResolved()` replaces `ValidateFile()`, `ValidateDirResolved()` replaces `ValidateDir()`. `--schema-dir` flag overrides the global directory in the resolver. | 🤖 | ✅ | All validate paths updated; backward compatible |
 | `B-W6D26-1` | Scaffold `web/`: Next.js 15 + TypeScript + shadcn/ui + Tailwind | 🤖 | ⬜ | |
 | `B-W6D26-2` | Contribution form: Select curriculum (or create new) → Select topic (or import) → Contribution type → Three input methods: paste URL, type/paste text, or upload file (PDF, DOCX, PPTX, TXT, image) | 🤖 | ⬜ | Updated: supports new curriculum creation |
 | `B-W6D26-3` | `POST /api/preview` — calls shared `pipeline.Execute(ModePreview)`, returns structured YAML. `POST /api/submit` — calls `pipeline.Execute(ModeCreatePR)`. Both delegate to the same pipeline as CLI and Bot. | 🤖 | ⬜ | |
@@ -206,7 +213,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | `B-W6D30-1` | 🧑 Announce web portal in launch materials: "contribute.p-n-ai.org — teachers can contribute without Git" | 🧑 Human | ⬜ | |
 | `B-W6D30-2` | 🧑 Write oss-bot section of 6-week report: AI generation quality, bot PRs created, web portal usage, curricula onboarded | 🧑 Human | ⬜ | |
 
-**Week 6 Output:** Web portal live at contribute.p-n-ai.org with multi-country curriculum support, bulk import UI, and new curriculum creation flow. GitHub bot responding to @oss-bot. CLI distributed as pre-built binary.
+**Week 6 Output (planned):** Web portal live at contribute.p-n-ai.org with multi-country curriculum support, bulk import UI, and new curriculum creation flow. GitHub bot responding to @oss-bot. CLI distributed as pre-built binary. Per-subject schema support across scaffold, generate, and validate commands.
 
 ---
 
@@ -216,9 +223,11 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 |------|----------------|----------|-------|--------|
 | 1-3 | 0 | 0 | 0 (no oss-bot work) | — |
 | 4 | 18 | 2 | 20 | ✅ Complete (Days 16-20) |
-| 5 | 32 | 2 | 34 | ⬜ Next (Days 21-25, rebalanced + new scenarios) |
-| 6 | 13 | 2 | 15 | ⬜ (Days 26-30, updated for multi-country + progress UI) |
-| **Total** | **63** | **6** | **69** |
+| 5 | 32 | 2 | 34 | ✅ Complete (Days 21-25, rebalanced + new scenarios) |
+| 6 | 18 | 2 | 20 | 🔄 In progress (Days 26-30; per-subject schema ✅, web portal ⬜) |
+| **Total** | **68** | **6** | **74** |
+
+**Test suite:** 188 tests passing across 8 packages (validator 31, generator 43, pipeline 40, ai, api, github, parser, cmd/oss).
 
 ---
 
@@ -229,7 +238,7 @@ oss-bot repo does not exist yet. All curriculum content is created directly in t
 | Task Type | Model Tier | Examples | Candidates |
 |-----------|-----------|----------|------------|
 | **Standard generation** | Fast, affordable | Teaching notes, assessments, examples, translation | GPT-4o, Claude Sonnet 4, Llama 3 |
-| **Complex reasoning** | Advanced reasoning | Bulk import structure extraction, content merge decisions, cross-topic prerequisite mapping, large document analysis | DeepSeek R1, Kimi K2.5, Qwen 3.5, OpenAI o3-mini, Claude Opus (via OpenRouter) |
+| **Complex reasoning** | Advanced reasoning | Bulk import structure extraction, content merge decisions, cross-topic prerequisite mapping, large document analysis | DeepSeek R1, Kimi K2.5, Qwen 3.5 Flash, OpenAI o3-mini, Claude Opus (via OpenRouter) |
 | **Vision** | Multimodal | Handwriting OCR, diagram extraction, complex layouts | GPT-4o Vision, Claude Vision |
 
 The `internal/ai/reasoning.go` provider (Day 24) uses **OpenRouter** as a unified API gateway (single OpenAI-compatible endpoint at `https://openrouter.ai/api/v1`) to access all reasoning models by changing the model name string. No custom provider implementations needed per model. Config via `OSS_AI_REASONING_PROVIDER=openrouter`, `OSS_AI_REASONING_API_KEY`, and `OSS_AI_REASONING_MODEL=deepseek/deepseek-r1` environment variables.
