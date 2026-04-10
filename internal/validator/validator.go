@@ -14,10 +14,11 @@ import (
 
 // ValidationResult holds the result of validating a single file.
 type ValidationResult struct {
-	File   string
-	Type   string
-	Valid  bool
-	Errors []string
+	File       string
+	Type       string
+	SchemaPath string // resolved schema file path (set by ValidateFileResolved/ValidateContentResolved)
+	Valid      bool
+	Errors     []string
 }
 
 // Validator validates YAML files against JSON Schemas.
@@ -228,11 +229,15 @@ func flattenValidationErrors(ve *jsonschema.ValidationError) []string {
 	var errs []string
 
 	if ve.Message != "" {
-		location := ve.InstanceLocation
-		if location == "" {
-			location = "(root)"
+		// Skip the generic "doesn't validate with <$id>#" wrapper messages —
+		// the actual errors are in the causes and we already show the schema path.
+		if !strings.HasPrefix(ve.Message, "doesn't validate with ") {
+			location := ve.InstanceLocation
+			if location == "" {
+				location = "(root)"
+			}
+			errs = append(errs, fmt.Sprintf("%s: %s", location, ve.Message))
 		}
-		errs = append(errs, fmt.Sprintf("%s: %s", location, ve.Message))
 	}
 
 	for _, cause := range ve.Causes {
@@ -307,11 +312,12 @@ func (v *Validator) ValidateFileResolved(filePath, schemaType string) (*Validati
 
 	// Resolve the schema path
 	subjectDir := FindSubjectDir(filePath)
-	schemasDir := SubjectSchemasDir(subjectDir)
-	schemaPath, found := v.resolver.ResolveSchemaPath(schemaType, schemasDir)
+	schemaDir := SubjectSchemaDir(subjectDir)
+	schemaPath, found := v.resolver.ResolveSchemaPath(schemaType, schemaDir)
 	if !found {
 		return nil, fmt.Errorf("schema %q not found in subject or global directories", schemaType)
 	}
+	result.SchemaPath = schemaPath
 
 	schema, err := v.compileAndCache(schemaPath)
 	if err != nil {
@@ -341,6 +347,7 @@ func (v *Validator) ValidateContentResolved(content []byte, schemaType, subjectS
 	if !found {
 		return nil, fmt.Errorf("schema %q not found in subject or global directories", schemaType)
 	}
+	result.SchemaPath = schemaPath
 
 	schema, err := v.compileAndCache(schemaPath)
 	if err != nil {

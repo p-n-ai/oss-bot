@@ -63,16 +63,16 @@ func FindSubjectDir(yamlFilePath string) string {
 	return ""
 }
 
-// SubjectSchemasDir returns the "schemas" subdirectory of the given subject directory,
-// or "" if the directory does not exist or has no schemas/ subfolder.
-func SubjectSchemasDir(subjectDir string) string {
+// SubjectSchemaDir returns the "schema" subdirectory of the given subject directory,
+// or "" if the directory does not exist or has no schema/ subfolder.
+func SubjectSchemaDir(subjectDir string) string {
 	if subjectDir == "" {
 		return ""
 	}
-	schemasDir := filepath.Join(subjectDir, "schemas")
-	info, err := os.Stat(schemasDir)
+	schemaDir := filepath.Join(subjectDir, "schema")
+	info, err := os.Stat(schemaDir)
 	if err != nil || !info.IsDir() {
 		return ""
 	}
-	return schemasDir
+	return schemaDir
 }

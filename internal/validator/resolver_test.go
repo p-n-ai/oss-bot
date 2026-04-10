@@ -14,7 +14,7 @@ import (
 //	    topic.schema.json
 //	  curricula/country/syllabus/subject/
 //	    subject.yaml
-//	    schemas/                        <- subject-level overrides
+//	    schema/                         <- subject-level overrides
 //	      assessments.schema.json      <- different from global
 //	    grade/
 //	      subject-grade.yaml
@@ -36,9 +36,9 @@ func setupResolverTestDirs(t *testing.T) (root string) {
 	os.WriteFile(filepath.Join(subjectDir, "subject.yaml"), []byte("id: subject\n"), 0o644)
 
 	// Subject-level schema override (only assessments)
-	subjectSchemas := filepath.Join(subjectDir, "schemas")
-	os.MkdirAll(subjectSchemas, 0o755)
-	os.WriteFile(filepath.Join(subjectSchemas, "assessments.schema.json"), []byte(`{"subject":"assessments"}`), 0o644)
+	subjectSchema := filepath.Join(subjectDir, "schema")
+	os.MkdirAll(subjectSchema, 0o755)
+	os.WriteFile(filepath.Join(subjectSchema, "assessments.schema.json"), []byte(`{"subject":"assessments"}`), 0o644)
 
 	// Subject-grade + topics
 	topicsDir := filepath.Join(subjectDir, "grade", "topics")
@@ -95,7 +95,7 @@ func TestFindSubjectDir(t *testing.T) {
 	}
 }
 
-func TestSubjectSchemasDir(t *testing.T) {
+func TestSubjectSchemaDir(t *testing.T) {
 	root := setupResolverTestDirs(t)
 	subjectDir := filepath.Join(root, "curricula", "country", "syllabus", "subject")
 
@@ -105,12 +105,12 @@ func TestSubjectSchemasDir(t *testing.T) {
 		wantEmpty  bool
 	}{
 		{
-			name:       "schemas dir exists",
+			name:       "schema dir exists",
 			subjectDir: subjectDir,
 			wantEmpty:  false,
 		},
 		{
-			name:       "no schemas dir",
+			name:       "no schema dir",
 			subjectDir: filepath.Join(root, "curricula", "country"),
 			wantEmpty:  true,
 		},
@@ -123,12 +123,12 @@ func TestSubjectSchemasDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := SubjectSchemasDir(tt.subjectDir)
+			got := SubjectSchemaDir(tt.subjectDir)
 			if tt.wantEmpty && got != "" {
-				t.Errorf("SubjectSchemasDir(%q) = %q, want empty", tt.subjectDir, got)
+				t.Errorf("SubjectSchemaDir(%q) = %q, want empty", tt.subjectDir, got)
 			}
 			if !tt.wantEmpty && got == "" {
-				t.Errorf("SubjectSchemasDir(%q) = empty, want non-empty", tt.subjectDir)
+				t.Errorf("SubjectSchemaDir(%q) = empty, want non-empty", tt.subjectDir)
 			}
 		})
 	}
@@ -137,62 +137,62 @@ func TestSubjectSchemasDir(t *testing.T) {
 func TestResolveSchemaPath(t *testing.T) {
 	root := setupResolverTestDirs(t)
 	globalDir := filepath.Join(root, "schema")
-	subjectSchemasDir := filepath.Join(root, "curricula", "country", "syllabus", "subject", "schemas")
+	subjectSchemaDir := filepath.Join(root, "curricula", "country", "syllabus", "subject", "schema")
 
 	resolver := NewSchemaResolver(globalDir)
 
 	tests := []struct {
-		name              string
-		schemaType        string
-		subjectSchemasDir string
-		wantPath          string
-		wantFound         bool
+		name            string
+		schemaType      string
+		subjectSchemaDir string
+		wantPath        string
+		wantFound       bool
 	}{
 		{
-			name:              "subject override exists",
-			schemaType:        "assessments",
-			subjectSchemasDir: subjectSchemasDir,
-			wantPath:          filepath.Join(subjectSchemasDir, "assessments.schema.json"),
-			wantFound:         true,
+			name:            "subject override exists",
+			schemaType:      "assessments",
+			subjectSchemaDir: subjectSchemaDir,
+			wantPath:        filepath.Join(subjectSchemaDir, "assessments.schema.json"),
+			wantFound:       true,
 		},
 		{
-			name:              "global fallback (no subject override)",
-			schemaType:        "topic",
-			subjectSchemasDir: subjectSchemasDir,
-			wantPath:          filepath.Join(globalDir, "topic.schema.json"),
-			wantFound:         true,
+			name:            "global fallback (no subject override)",
+			schemaType:      "topic",
+			subjectSchemaDir: subjectSchemaDir,
+			wantPath:        filepath.Join(globalDir, "topic.schema.json"),
+			wantFound:       true,
 		},
 		{
-			name:              "not found anywhere",
-			schemaType:        "concept",
-			subjectSchemasDir: subjectSchemasDir,
-			wantPath:          "",
-			wantFound:         false,
+			name:            "not found anywhere",
+			schemaType:      "concept",
+			subjectSchemaDir: subjectSchemaDir,
+			wantPath:        "",
+			wantFound:       false,
 		},
 		{
-			name:              "empty subject schemas dir — global fallback",
-			schemaType:        "topic",
-			subjectSchemasDir: "",
-			wantPath:          filepath.Join(globalDir, "topic.schema.json"),
-			wantFound:         true,
+			name:            "empty subject schema dir — global fallback",
+			schemaType:      "topic",
+			subjectSchemaDir: "",
+			wantPath:        filepath.Join(globalDir, "topic.schema.json"),
+			wantFound:       true,
 		},
 		{
-			name:              "nonexistent subject schemas dir — global fallback",
-			schemaType:        "assessments",
-			subjectSchemasDir: "/nonexistent/schemas",
-			wantPath:          filepath.Join(globalDir, "assessments.schema.json"),
-			wantFound:         true,
+			name:            "nonexistent subject schema dir — global fallback",
+			schemaType:      "assessments",
+			subjectSchemaDir: "/nonexistent/schema",
+			wantPath:        filepath.Join(globalDir, "assessments.schema.json"),
+			wantFound:       true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotPath, gotFound := resolver.ResolveSchemaPath(tt.schemaType, tt.subjectSchemasDir)
+			gotPath, gotFound := resolver.ResolveSchemaPath(tt.schemaType, tt.subjectSchemaDir)
 			if gotFound != tt.wantFound {
-				t.Errorf("ResolveSchemaPath(%q, %q) found = %v, want %v", tt.schemaType, tt.subjectSchemasDir, gotFound, tt.wantFound)
+				t.Errorf("ResolveSchemaPath(%q, %q) found = %v, want %v", tt.schemaType, tt.subjectSchemaDir, gotFound, tt.wantFound)
 			}
 			if gotPath != tt.wantPath {
-				t.Errorf("ResolveSchemaPath(%q, %q) path = %q, want %q", tt.schemaType, tt.subjectSchemasDir, gotPath, tt.wantPath)
+				t.Errorf("ResolveSchemaPath(%q, %q) path = %q, want %q", tt.schemaType, tt.subjectSchemaDir, gotPath, tt.wantPath)
 			}
 		})
 	}
@@ -201,18 +201,18 @@ func TestResolveSchemaPath(t *testing.T) {
 func TestResolveSchemaPath_PerFileMixed(t *testing.T) {
 	root := setupResolverTestDirs(t)
 	globalDir := filepath.Join(root, "schema")
-	subjectSchemasDir := filepath.Join(root, "curricula", "country", "syllabus", "subject", "schemas")
+	subjectSchemaDir := filepath.Join(root, "curricula", "country", "syllabus", "subject", "schema")
 
 	resolver := NewSchemaResolver(globalDir)
 
 	// assessments should come from subject
-	aPath, aFound := resolver.ResolveSchemaPath("assessments", subjectSchemasDir)
-	if !aFound || aPath != filepath.Join(subjectSchemasDir, "assessments.schema.json") {
+	aPath, aFound := resolver.ResolveSchemaPath("assessments", subjectSchemaDir)
+	if !aFound || aPath != filepath.Join(subjectSchemaDir, "assessments.schema.json") {
 		t.Errorf("assessments should resolve to subject schema, got %q (found=%v)", aPath, aFound)
 	}
 
 	// topic should fall back to global
-	tPath, tFound := resolver.ResolveSchemaPath("topic", subjectSchemasDir)
+	tPath, tFound := resolver.ResolveSchemaPath("topic", subjectSchemaDir)
 	if !tFound || tPath != filepath.Join(globalDir, "topic.schema.json") {
 		t.Errorf("topic should resolve to global schema, got %q (found=%v)", tPath, tFound)
 	}

@@ -166,9 +166,9 @@ func (s *Scaffolder) ScaffoldSubject(ctx context.Context, req ScaffoldRequest) (
 		files[topicPath] = buildTopicStubYAML(topicID, topic, topicNameEn, subjectGradeID, req.SubjectID, req.SyllabusID, country)
 	}
 
-	// Copy global schemas into subject schemas/ directory for per-subject customization.
+	// Copy global schemas into subject schema/ directory for per-subject customization.
 	if req.GlobalSchemaDir != "" {
-		schemasRelDir := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "schemas")
+		schemasRelDir := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "schema")
 		schemaNames := []string{"assessments", "concept", "examples", "subject", "syllabus", "topic"}
 		for _, name := range schemaNames {
 			src := filepath.Join(req.GlobalSchemaDir, name+".schema.json")
@@ -361,6 +361,7 @@ func buildTopicStubYAML(id, name, nameEn, subjectGradeID, subjectID, syllabusID,
 	sb.WriteString("country_id: " + countryID + "\n")
 	sb.WriteString("language: " + lang + "\n")
 	sb.WriteString("difficulty: beginner\n")
+	sb.WriteString("content_standards: []\n")
 	sb.WriteString("learning_objectives: []\n")
 	sb.WriteString("prerequisites:\n")
 	sb.WriteString("  required: []\n")

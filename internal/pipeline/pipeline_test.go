@@ -482,7 +482,7 @@ func setupPipelineTestRepoWithSchema(t *testing.T) string {
 	os.WriteFile(filepath.Join(subjectDir, "subject.yaml"), []byte("id: test-algebra\nname: Algebra\nsyllabus_id: test\ntopics: []\n"), 0o644)
 
 	// Subject-level schema (assessments requires marks)
-	schemasDir := filepath.Join(subjectDir, "schemas")
+	schemasDir := filepath.Join(subjectDir, "schema")
 	os.MkdirAll(schemasDir, 0o755)
 	assessmentsSchema := `{
 		"$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -50,6 +50,11 @@ type BulkRequest struct {
 	// Nil means treat every chunk as new content (initial import).
 	ContentReader ContentReader
 
+	// TopicSchema is the resolved topic JSON Schema content. When set, it is
+	// injected into the AI prompt so generated topics include all required fields
+	// (e.g. content_standards for subjects that define them).
+	TopicSchema string
+
 	// Hooks for testing concurrency behaviour — called on each worker goroutine.
 	OnWorkerStart func()
 	OnWorkerDone  func()
@@ -332,14 +337,20 @@ func processChunk(ctx context.Context, req BulkRequest, chunk parser.Chunk) (str
 	countryID := chunkCountryFromSubject(subjectID)
 	language := chunkLanguageForCountry(countryID)
 
+	// Build schema section if a resolved topic schema was provided.
+	schemaSection := ""
+	if req.TopicSchema != "" {
+		schemaSection = fmt.Sprintf("\nJSON SCHEMA (your output MUST conform to this schema — include ALL required fields):\n```json\n%s\n```\n", req.TopicSchema)
+	}
+
 	prompt := fmt.Sprintf(
 		`You are extracting curriculum content from an official curriculum document and generating an Open School Syllabus (OSS) topic YAML file.
 
 Topic: %s
 Document content:
 %s%s
-
-Generate a SINGLE YAML document. Pre-filled fields MUST be kept exactly as shown. Fill in all FILL_ placeholders from the document content.
+%s
+Generate a SINGLE YAML document. Pre-filled fields MUST be kept exactly as shown. Fill in all FILL_ placeholders from the document content. Include ALL fields marked as "required" in the JSON Schema above (if provided).
 
 id: %s
 official_ref: "FILL_OFFICIAL_REF"   # chapter/section code as printed in document, e.g. "1.0" or "Bab 1"
@@ -351,6 +362,11 @@ country_id: %s
 language: %s
 difficulty: FILL_DIFFICULTY         # beginner | intermediate | advanced
 tier: core                          # core | extension
+
+content_standards:                  # extract from document's content/learning standards
+  - id: "FILL_SK_CODE"             # content standard code, e.g. "1.1"
+    text: "FILL_TEXT"
+    text_en: "FILL_TEXT_EN"
 
 learning_objectives:
   - id: FILL_SP_CODE                # STANDARD PEMBELAJARAN code, e.g. 1.1.1
@@ -380,10 +396,12 @@ provenance: ai-assisted
 RULES:
 - Output ONLY valid YAML — no markdown fences, no explanatory text before or after
 - Extract ALL learning objectives from the STANDARD PEMBELAJARAN section
+- Extract ALL content standards from the document
 - name MUST be in the document language (%s), name_en MUST be the English translation
 - learning_objectives text MUST be in the document language (%s), text_en MUST be the English translation
 - bloom levels: remember | understand | apply | analyze | evaluate | create`,
 		chunk.Heading, chunk.Content, existingSection,
+		schemaSection,
 		topicID, subjectID, req.SyllabusID, countryID, language,
 		language,
 		topicID,

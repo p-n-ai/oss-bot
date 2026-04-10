@@ -205,11 +205,11 @@ The pipeline executes 7 stages regardless of interface:
 7. **Output** — based on execution mode: write files, open PR, or return preview
 
 ### Per-Subject Schema Resolution
-Each subject can have its own JSON Schema overrides in a `schemas/` directory. Resolution is per-schema-file:
-1. Check `{subjectID}/schemas/{type}.schema.json` (subject-level override)
+Each subject can have its own JSON Schema overrides in a `schema/` directory. Resolution is per-schema-file:
+1. Check `{subjectID}/schema/{type}.schema.json` (subject-level override)
 2. If not found, fall back to `{repoPath}/schema/{type}.schema.json` (global)
 
-This allows different subjects (e.g., English vs Math) to have different schema requirements while sharing a common base. The `scaffold subject` command copies the 6 global schemas into the new subject's `schemas/` directory for customization.
+This allows different subjects (e.g., English vs Math) to have different schema requirements while sharing a common base. The `scaffold subject` command copies the 6 global schemas into the new subject's `schema/` directory for customization.
 
 Schema files: `assessments.schema.json`, `concept.schema.json`, `examples.schema.json`, `subject.schema.json`, `syllabus.schema.json`, `topic.schema.json`.
 

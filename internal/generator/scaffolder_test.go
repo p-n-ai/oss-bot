@@ -246,7 +246,7 @@ func TestScaffoldSubject_CopiesSchemas(t *testing.T) {
 
 	// Verify all 6 schema files are in the result
 	for _, name := range schemaNames {
-		expectedPath := filepath.Join("curricula", "test", "test-syllabus", "test-syllabus-math", "schemas", name+".schema.json")
+		expectedPath := filepath.Join("curricula", "test", "test-syllabus", "test-syllabus-math", "schema", name+".schema.json")
 		content, ok := result.Files[expectedPath]
 		if !ok {
 			t.Errorf("missing schema file in result: %s", expectedPath)
@@ -276,7 +276,7 @@ func TestScaffoldSubject_NoSchemaDir(t *testing.T) {
 
 	// Verify no schema files in result
 	for path := range result.Files {
-		if strings.Contains(path, "schemas/") {
+		if strings.Contains(path, "schema/") && strings.HasSuffix(path, ".schema.json") {
 			t.Errorf("unexpected schema file in result: %s", path)
 		}
 	}

@@ -1030,6 +1030,7 @@ func runImport(cmd *cobra.Command, _ []string) error {
 			mode:           mode,
 			force:          force,
 			topicsDir:      topicsDir,
+			repoPath:       repoPath,
 			provider:       reasoningProvider,
 			baseProvider:   provider,
 		})
@@ -1061,6 +1062,7 @@ type importChunkOpts struct {
 	mode           pipeline.ExecutionMode
 	force          bool
 	topicsDir      string
+	repoPath       string
 	provider       ai.Provider
 	baseProvider   ai.Provider // faster model for merge (non-reasoning)
 }
@@ -1098,6 +1100,19 @@ func runImportChunkMode(cmd *cobra.Command, text string, opts importChunkOpts) e
 		chunks = filtered
 	}
 
+	// Resolve the topic schema for this subject (subject-level override or global fallback).
+	var topicSchemaContent string
+	globalSchemaDir := filepath.Join(opts.repoPath, "schema")
+	schemaResolver := validator.NewSchemaResolver(globalSchemaDir)
+	subjectDir := validator.FindSubjectDir(filepath.Join(opts.topicsDir, "x.yaml"))
+	schemaDir := validator.SubjectSchemaDir(subjectDir)
+	if schemaPath, ok := schemaResolver.ResolveSchemaPath("topic", schemaDir); ok {
+		if data, err := os.ReadFile(schemaPath); err == nil {
+			topicSchemaContent = string(data)
+			fmt.Printf("Using topic schema: %s\n", schemaPath)
+		}
+	}
+
 	result, err := pipeline.ExecuteBulk(cmd.Context(), pipeline.BulkRequest{
 		Chunks:         chunks,
 		SyllabusID:     opts.syllabusID,
@@ -1107,6 +1122,7 @@ func runImportChunkMode(cmd *cobra.Command, text string, opts importChunkOpts) e
 		Workers:        opts.workers,
 		Reporter:       pipeline.NewCLIReporter(),
 		Provider:       opts.provider,
+		TopicSchema:    topicSchemaContent,
 	})
 	if err != nil {
 		return fmt.Errorf("bulk import: %w", err)
@@ -1214,6 +1230,21 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 		topicRefSection += "\nTOPIC NAME REFERENCE (use these as hints to identify topics in the document):\n" + topicRefText + "\n"
 	}
 
+	// Resolve the topic schema (subject-level override or global fallback)
+	// so the AI knows which fields are required in the output.
+	var topicSchemaContent string
+	globalSchemaDir := filepath.Join(opts.repoPath, "schema")
+	resolver := validator.NewSchemaResolver(globalSchemaDir)
+	// Find subject dir from topicsDir (walk up to find subject.yaml).
+	subjectDir := validator.FindSubjectDir(filepath.Join(opts.topicsDir, "x.yaml"))
+	schemaDir := validator.SubjectSchemaDir(subjectDir)
+	if schemaPath, ok := resolver.ResolveSchemaPath("topic", schemaDir); ok {
+		if data, err := os.ReadFile(schemaPath); err == nil {
+			topicSchemaContent = string(data)
+			fmt.Printf("Using topic schema: %s\n", schemaPath)
+		}
+	}
+
 	// Build the prompt.
 	prompt := buildWholePDFPrompt(text, wholePDFPromptOpts{
 		syllabusID:      opts.syllabusID,
@@ -1225,6 +1256,7 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 		topicRefSection: topicRefSection,
 		scaffoldTopics:  scaffoldTopics,
 		filterTopicID:   opts.filterTopicID,
+		topicSchema:     topicSchemaContent,
 	})
 
 	fmt.Printf("Calling AI with ~%d input tokens, max %d output tokens...\n", estimatedTokens, maxOutputTokens)
@@ -1251,6 +1283,46 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 		return fmt.Errorf("AI returned no parseable topics — try chunk mode with --chunk")
 	}
 	fmt.Printf("Extracted %d topics from AI response\n", len(topics))
+
+	// Post-process: fix topic IDs that the AI may have mangled (e.g. TP6-SC1-02 → SC1-02).
+	// When scaffold topics exist, we have a known-good set of IDs. If the AI generated
+	// an ID that contains a known scaffold ID as a substring, correct it.
+	if len(scaffoldTopics) > 0 {
+		knownIDs := make(map[string]bool, len(scaffoldTopics))
+		for _, t := range scaffoldTopics {
+			knownIDs[t.ID] = true
+		}
+		for i, tr := range topics {
+			yamlID, _ := extractTopicIDAndName(tr.Output)
+			if yamlID == "" || knownIDs[yamlID] {
+				continue // already correct or unparseable
+			}
+			// Check if a known ID is embedded in the mangled ID (e.g. "TP6-SC1-02" contains "SC1-02").
+			for kid := range knownIDs {
+				if strings.Contains(yamlID, kid) {
+					fmt.Printf("  fixing topic ID: %s → %s\n", yamlID, kid)
+					topics[i].Output = strings.Replace(tr.Output, "id: "+yamlID, "id: "+kid, 1)
+					break
+				}
+			}
+		}
+	}
+
+	// Filter to the single requested topic when --topic-id is set.
+	if opts.filterTopicID != "" {
+		var filtered []pipeline.TopicResult
+		for _, tr := range topics {
+			yamlID, _ := extractTopicIDAndName(tr.Output)
+			if yamlID == opts.filterTopicID {
+				filtered = append(filtered, tr)
+			}
+		}
+		if len(filtered) == 0 {
+			return fmt.Errorf("AI response did not contain topic %s", opts.filterTopicID)
+		}
+		topics = filtered
+		fmt.Printf("Filtered to %d topic(s) matching --topic-id %s\n", len(topics), opts.filterTopicID)
+	}
 
 	return writeImportResults(cmd.Context(), topics, opts.baseProvider, importWriteOpts{
 		subjectGradeID: opts.subjectGradeID,
@@ -1305,8 +1377,12 @@ func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, prov
 		if tr.Err != nil || strings.TrimSpace(tr.Output) == "" {
 			continue
 		}
+		// Prefer the id embedded in the YAML output; fall back to derivation.
+		yamlID, _ := extractTopicIDAndName(tr.Output)
 		var fileID string
-		if opts.subjectGradeID != "" {
+		if yamlID != "" {
+			fileID = yamlID
+		} else if opts.subjectGradeID != "" {
 			fileID = topicFileID(opts.subjectGradeID, tr.Heading, tr.ChunkIndex)
 		} else {
 			slug := importSlug(tr.Heading)
@@ -1843,6 +1919,7 @@ type wholePDFPromptOpts struct {
 	topicRefSection string
 	scaffoldTopics  []scaffoldTopic
 	filterTopicID   string
+	topicSchema     string // resolved topic JSON Schema content (if available)
 }
 
 // buildWholePDFPrompt constructs the prompt for whole-PDF import mode.
@@ -1860,12 +1937,31 @@ func buildWholePDFPrompt(pdfText string, opts wholePDFPromptOpts) string {
 		opts.prefix, opts.grade, opts.prefix, opts.grade, opts.prefix, opts.grade,
 	)
 	if len(opts.scaffoldTopics) > 0 {
-		topicIDInstruction = "Use the EXACT topic IDs from the KNOWN TOPICS list below. Match each topic in the document to the closest scaffold topic by name."
+		var idList []string
+		for _, t := range opts.scaffoldTopics {
+			idList = append(idList, t.ID)
+		}
+		topicIDInstruction = fmt.Sprintf(
+			"CRITICAL — Topic IDs: You MUST use EXACTLY one of these IDs for each topic: %s. "+
+				"Match each document topic to the closest scaffold topic by name. "+
+				"DO NOT invent new IDs, DO NOT combine theme/chapter numbers with these IDs, DO NOT add prefixes.",
+			strings.Join(idList, ", "),
+		)
 	}
 
 	filterInstruction := ""
 	if opts.filterTopicID != "" {
 		filterInstruction = fmt.Sprintf("\n\nIMPORTANT: Only extract and generate YAML for topic %s. Ignore all other topics.", opts.filterTopicID)
+	}
+
+	// Build the schema section: if a resolved topic schema is available,
+	// include it so the AI generates all required fields (e.g. content_standards).
+	schemaSection := ""
+	if opts.topicSchema != "" {
+		schemaSection = fmt.Sprintf(`
+JSON SCHEMA (your output MUST conform to this schema — include ALL required fields):
+`+"```json\n%s\n```"+`
+`, opts.topicSchema)
 	}
 
 	prompt := fmt.Sprintf(`You are extracting ALL curriculum topics from an educational document and generating OSS-format YAML files.
@@ -1880,51 +1976,30 @@ METADATA:
 - country_id: %s
 - language: %s
 - %s%s
-
+%s
 INSTRUCTIONS:
 For EACH topic found in the document, generate a complete YAML document. Separate each topic with a line containing only "---".
 
-Each topic YAML must contain:
-id: <topic_id>
-official_ref: "FILL"        # chapter/section code as printed in document (e.g. "1.0", "Bab 1")
-name: "FILL"                # topic name in the document language (%s)
-name_en: "FILL"             # English translation of name
-subject_id: %s
-syllabus_id: %s
-country_id: %s
-language: %s
-difficulty: FILL             # beginner | intermediate | advanced
-tier: core
+Each topic YAML must include ALL fields marked as "required" in the JSON Schema above (if provided). At minimum, each topic must contain:
+- id, name, name_en, subject_id, syllabus_id, country_id, language, difficulty
+- learning_objectives (array with id, text, text_en, bloom)
+- content_standards (if required by schema — extract from the document's content/learning standards)
+- quality_level, provenance
 
-learning_objectives:
-  - id: FILL                 # standard code from document (e.g. 1.1.1)
-    text: "FILL"             # objective text in document language (%s)
-    text_en: "FILL"          # English translation
-    bloom: FILL              # remember | understand | apply | analyze | evaluate | create
-
-prerequisites:
-  required: []
-  recommended: []
-
-bloom_levels:
-  - FILL                     # list all distinct bloom levels used
-
-mastery:
-  minimum_score: 0.75
-  assessment_count: 3
-  spaced_repetition:
-    initial_interval_days: 3
-    multiplier: 2.5
-
-ai_teaching_notes: "<topic_id>.teaching.md"
-quality_level: 1
-provenance: ai-assisted
+Use these fixed values:
+- subject_id: %s
+- syllabus_id: %s
+- country_id: %s
+- language: %s
+- provenance: ai-assisted
+- quality_level: 1
 
 RULES:
 - Output ONLY valid YAML — no markdown fences, no explanatory text before or after
 - Separate each topic with a line containing ONLY "---"
 - Extract ALL topics from the document, not just the first few
 - Extract ALL learning objectives from each topic section
+- Topic IDs: if KNOWN TOPICS are listed above, use EXACTLY those IDs — never invent new IDs or modify them
 - name MUST be in the document language (%s), name_en MUST be English
 - learning_objectives text MUST be in the document language, text_en MUST be English
 - bloom levels: remember | understand | apply | analyze | evaluate | create
@@ -1934,9 +2009,8 @@ RULES:
 		opts.topicRefSection,
 		opts.syllabusID, subjectID, opts.countryID, opts.language,
 		topicIDInstruction, filterInstruction,
-		opts.language,
+		schemaSection,
 		subjectID, opts.syllabusID, opts.countryID, opts.language,
-		opts.language,
 		opts.language,
 	)
 
@@ -2083,6 +2157,9 @@ func printResult(r validator.ValidationResult) {
 		fmt.Printf("  ✅ %s (%s)\n", r.File, r.Type)
 	} else {
 		fmt.Printf("  ❌ %s (%s)\n", r.File, r.Type)
+		if r.SchemaPath != "" {
+			fmt.Printf("     schema: %s\n", r.SchemaPath)
+		}
 		for _, e := range r.Errors {
 			fmt.Printf("     → %s\n", e)
 		}

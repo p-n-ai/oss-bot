@@ -161,7 +161,7 @@ The `scaffold subject` command creates the three-level directory structure and c
 curricula/malaysia/malaysia-kssm/
 └── malaysia-kssm-matematik/                         # subject (grade-less)
     ├── subject.yaml                                 # id: malaysia-kssm-matematik
-    ├── schemas/                                     # per-subject schema overrides
+    ├── schema/                                      # per-subject schema overrides
     │   ├── assessments.schema.json
     │   ├── concept.schema.json
     │   ├── examples.schema.json
@@ -498,7 +498,7 @@ A topic's YAML may **claim** a quality level via the `quality_level` field, but 
 
 #### Validate
 
-Check all YAML files against the schemas. Schemas are resolved per-file: subject-level overrides (`{subjectID}/schemas/`) take priority, with automatic fallback to the global `schema/` directory:
+Check all YAML files against the schemas. Schemas are resolved per-file: subject-level overrides (`{subjectID}/schema/`) take priority, with automatic fallback to the global `schema/` directory:
 
 ```bash
 # Validate entire repository

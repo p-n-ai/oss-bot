@@ -14,7 +14,7 @@ import (
 //	  schema/                                  <- global schemas (topic + assessments)
 //	  curricula/country/syllabus/subject/
 //	    subject.yaml
-//	    schemas/                                <- subject override (stricter assessments)
+//	    schema/                                 <- subject override (stricter assessments)
 //	      assessments.schema.json
 //	    grade/
 //	      subject-grade.yaml
@@ -118,7 +118,7 @@ func setupResolvedTestDirs(t *testing.T) (root string) {
 	os.WriteFile(filepath.Join(subjectDir, "subject.yaml"), []byte("id: subject\nname: Test\nsyllabus_id: syllabus\ntopics: []\n"), 0o644)
 
 	// Subject-level schema override — stricter assessments (marks IS required)
-	subjectSchemas := filepath.Join(subjectDir, "schemas")
+	subjectSchemas := filepath.Join(subjectDir, "schema")
 	os.MkdirAll(subjectSchemas, 0o755)
 	stricterAssessmentsSchema := `{
 		"$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -252,7 +252,7 @@ questions:
       value: "4"
     marks: 2
 `)
-	subjectSchemasDir := filepath.Join(root, "curricula", "country", "syllabus", "subject", "schemas")
+	subjectSchemasDir := filepath.Join(root, "curricula", "country", "syllabus", "subject", "schema")
 
 	result, err := v.ValidateContentResolved(validContent, "assessments", subjectSchemasDir)
 	if err != nil {
@@ -280,7 +280,7 @@ questions:
       type: exact
       value: "4"
 `)
-	subjectSchemasDir := filepath.Join(root, "curricula", "country", "syllabus", "subject", "schemas")
+	subjectSchemasDir := filepath.Join(root, "curricula", "country", "syllabus", "subject", "schema")
 
 	result, err := v.ValidateContentResolved(invalidContent, "assessments", subjectSchemasDir)
 	if err != nil {

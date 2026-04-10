@@ -120,7 +120,7 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 	if schemaType := SchemaTypeForContribution(req.ContributionType); schemaType != "" {
 		resolver := validator.NewSchemaResolver(filepath.Join(p.repoPath, "schema"))
 		subjectDir := validator.FindSubjectDir(filepath.Join(genCtx.TopicDir, "x.yaml"))
-		schemasDir := validator.SubjectSchemasDir(subjectDir)
+		schemasDir := validator.SubjectSchemaDir(subjectDir)
 
 		v := validator.NewWithResolver(resolver)
 		vResult, vErr := v.ValidateContentResolved([]byte(generated.Content), schemaType, schemasDir)
@@ -467,7 +467,7 @@ func (p *Pipeline) generate(ctx context.Context, genCtx *generator.GenerationCon
 	if schemaType != "" && genCtx.SchemaRules == "" {
 		resolver := validator.NewSchemaResolver(filepath.Join(p.repoPath, "schema"))
 		subjectDir := validator.FindSubjectDir(filepath.Join(genCtx.TopicDir, "x.yaml"))
-		schemasDir := validator.SubjectSchemasDir(subjectDir)
+		schemasDir := validator.SubjectSchemaDir(subjectDir)
 		if schemaPath, ok := resolver.ResolveSchemaPath(schemaType, schemasDir); ok {
 			if data, err := os.ReadFile(schemaPath); err == nil {
 				genCtx.SchemaRules = string(data)
