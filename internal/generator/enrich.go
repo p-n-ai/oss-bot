@@ -81,6 +81,11 @@ func BuildTopicEnrichmentPrompt(genCtx *GenerationContext) string {
 		sb.WriteString("\n```\n\n")
 	}
 
+	if genCtx.SchemaFieldGuide != "" {
+		sb.WriteString(genCtx.SchemaFieldGuide)
+		sb.WriteString("\n")
+	}
+
 	sb.WriteString(`## Output Format
 Output ONLY valid YAML with exactly this structure:
 

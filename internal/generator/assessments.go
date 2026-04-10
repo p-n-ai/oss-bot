@@ -62,6 +62,11 @@ func BuildAssessmentsPrompt(genCtx *GenerationContext, count int, difficulty str
 		sb.WriteString("\n```\n\n")
 	}
 
+	if genCtx.SchemaFieldGuide != "" {
+		sb.WriteString(genCtx.SchemaFieldGuide)
+		sb.WriteString("\n")
+	}
+
 	sb.WriteString(fmt.Sprintf(`## Requirements
 - Generate exactly %d questions
 - Each question must include: worked solution, rubric with partial marks, progressive hints

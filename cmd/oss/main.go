@@ -19,6 +19,7 @@ import (
 	"github.com/p-n-ai/oss-bot/internal/pipeline"
 	"github.com/p-n-ai/oss-bot/internal/validator"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var version = "dev"
@@ -1278,7 +1279,7 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 		duration.Round(time.Second), resp.InputTokens, resp.OutputTokens)
 
 	// Parse the multi-topic YAML output into individual topic results.
-	topics := parseWholePDFOutput(resp.Content, opts.subjectGradeID, prefix, grade)
+	topics := parseWholePDFOutput(resp.Content, opts.subjectGradeID, prefix, grade, topicSchemaContent)
 	if len(topics) == 0 {
 		return fmt.Errorf("AI returned no parseable topics — try chunk mode with --chunk")
 	}
@@ -1377,6 +1378,14 @@ func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, prov
 		if tr.Err != nil || strings.TrimSpace(tr.Output) == "" {
 			continue
 		}
+
+		// Validate YAML is parseable before writing — skip broken AI output.
+		var yamlCheck interface{}
+		if err := yaml.Unmarshal([]byte(tr.Output), &yamlCheck); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ skipping topic %q: invalid YAML: %v\n", tr.Heading, err)
+			continue
+		}
+
 		// Prefer the id embedded in the YAML output; fall back to derivation.
 		yamlID, _ := extractTopicIDAndName(tr.Output)
 		var fileID string
@@ -1962,6 +1971,9 @@ func buildWholePDFPrompt(pdfText string, opts wholePDFPromptOpts) string {
 JSON SCHEMA (your output MUST conform to this schema — include ALL required fields):
 `+"```json\n%s\n```"+`
 `, opts.topicSchema)
+		if fieldGuide := pipeline.ExtractSchemaDescriptions(opts.topicSchema); fieldGuide != "" {
+			schemaSection += "\n" + fieldGuide
+		}
 	}
 
 	prompt := fmt.Sprintf(`You are extracting ALL curriculum topics from an educational document and generating OSS-format YAML files.
@@ -2019,7 +2031,7 @@ RULES:
 
 // parseWholePDFOutput splits the AI's multi-topic YAML response into individual
 // TopicResult entries. Topics are separated by "---" lines.
-func parseWholePDFOutput(output string, subjectGradeID, prefix, grade string) []pipeline.TopicResult {
+func parseWholePDFOutput(output string, subjectGradeID, prefix, grade, topicSchema string) []pipeline.TopicResult {
 	output = pipeline.StripCodeFences(output)
 
 	// Split by YAML document separator.
@@ -2038,7 +2050,9 @@ func parseWholePDFOutput(output string, subjectGradeID, prefix, grade string) []
 			continue
 		}
 
-		// Sanitize YAML quoting for LaTeX.
+		// Sanitize AI-generated YAML issues.
+		doc = pipeline.FixYAMLColonSpacing(doc)
+		doc = pipeline.RemoveDuplicateKeys(doc)
 		doc = pipeline.SanitizeYAMLQuoting(doc)
 
 		// Extract topic ID and name from the YAML for heading/metadata.
@@ -2062,6 +2076,12 @@ func parseWholePDFOutput(output string, subjectGradeID, prefix, grade string) []
 		// Ensure required fields.
 		if topicID != "" {
 			doc = pipeline.EnsureTopicFields(doc, topicID)
+		}
+
+		// Enforce schema constraints: add missing required fields, quote strings.
+		if topicSchema != "" {
+			doc = pipeline.EnforceSchemaRequiredFields(doc, topicSchema)
+			doc = pipeline.EnforceStringQuoting(doc, topicSchema)
 		}
 
 		results = append(results, pipeline.TopicResult{

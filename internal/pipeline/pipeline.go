@@ -116,6 +116,16 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 		}
 	}
 
+	// Enforce schema constraints: add missing required fields and quote string values.
+	if genCtx.SchemaRules != "" {
+		generated.Content = EnforceSchemaRequiredFields(generated.Content, genCtx.SchemaRules)
+		generated.Content = EnforceStringQuoting(generated.Content, genCtx.SchemaRules)
+		for k, v := range generated.Files {
+			generated.Files[k] = EnforceSchemaRequiredFields(v, genCtx.SchemaRules)
+			generated.Files[k] = EnforceStringQuoting(generated.Files[k], genCtx.SchemaRules)
+		}
+	}
+
 	// Schema validation + single retry for YAML content types.
 	if schemaType := SchemaTypeForContribution(req.ContributionType); schemaType != "" {
 		resolver := validator.NewSchemaResolver(filepath.Join(p.repoPath, "schema"))
@@ -135,6 +145,11 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 			if req.ContributionType == "assessments" || req.ContributionType == "examples" {
 				generated.Content = SanitizeYAMLQuoting(generated.Content)
 			}
+			// Re-enforce schema constraints on retried content.
+			if genCtx.SchemaRules != "" {
+				generated.Content = EnforceSchemaRequiredFields(generated.Content, genCtx.SchemaRules)
+				generated.Content = EnforceStringQuoting(generated.Content, genCtx.SchemaRules)
+			}
 		}
 	}
 
@@ -144,6 +159,8 @@ func (p *Pipeline) Execute(ctx context.Context, req Request) (*Result, error) {
 		if err != nil {
 			return nil, fmt.Errorf("finding topic file for enrichment: %w", err)
 		}
+		// AI models sometimes duplicate keys (e.g. engagement_hooks appears twice).
+		generated.Content = RemoveDuplicateKeys(generated.Content)
 		enrichedYAML, err := generator.EnrichTopicYAML(topicFile, generated.Content)
 		if err != nil {
 			return nil, fmt.Errorf("enriching topic YAML: %w", err)
@@ -225,18 +242,21 @@ func (p *Pipeline) mergeWithExisting(
 	genCtx *generator.GenerationContext,
 	generated string,
 ) (string, *generator.MergeReport, error) {
-	// Determine the filename for existing content based on contribution type.
+	// Derive the filename from the topic ID using the standard naming convention,
+	// rather than trusting the YAML field which may contain subdirectory paths.
+	if genCtx.Topic.ID == "" {
+		return generated, nil, nil
+	}
 	var fileName string
 	switch req.ContributionType {
 	case "teaching_notes":
-		fileName = genCtx.Topic.TeachingNotesFile
+		fileName = genCtx.Topic.ID + ".teaching.md"
 	case "assessments":
-		fileName = genCtx.Topic.AssessmentsFile
+		fileName = genCtx.Topic.ID + ".assessments.yaml"
 	case "examples":
-		fileName = genCtx.Topic.ExamplesFile
-	}
-	if fileName == "" {
-		return generated, nil, nil // No existing file configured.
+		fileName = genCtx.Topic.ID + ".examples.yaml"
+	default:
+		return generated, nil, nil
 	}
 
 	// Construct the repo-relative path to the existing file.
@@ -276,28 +296,23 @@ func (p *Pipeline) mergeWithExisting(
 }
 
 // buildFilesMap constructs the repo-relative file path → content map for
-// generated content. Uses the topic's file reference fields and TopicDir.
-// Returns nil if the topic has no file reference configured for contribType.
+// generated content. Always derives the filename from the topic ID to ensure
+// consistent naming (e.g. SC1-04.assessments.yaml), regardless of what the
+// topic YAML's file reference fields contain (which may have stale or
+// subdirectory-style paths from AI import).
+// Returns nil if the topic ID is empty.
 func buildFilesMap(genCtx *generator.GenerationContext, contribType, content, repoPath string) map[string]string {
+	if genCtx.Topic.ID == "" {
+		return nil
+	}
 	var fileName string
 	switch contribType {
 	case "teaching_notes":
-		fileName = genCtx.Topic.TeachingNotesFile
+		fileName = genCtx.Topic.ID + ".teaching.md"
 	case "assessments":
-		fileName = genCtx.Topic.AssessmentsFile
+		fileName = genCtx.Topic.ID + ".assessments.yaml"
 	case "examples":
-		fileName = genCtx.Topic.ExamplesFile
-	}
-	// Derive filename from topic ID when the YAML field is not set.
-	if fileName == "" && genCtx.Topic.ID != "" {
-		switch contribType {
-		case "teaching_notes":
-			fileName = genCtx.Topic.ID + ".teaching.md"
-		case "assessments":
-			fileName = genCtx.Topic.ID + ".assessments.yaml"
-		case "examples":
-			fileName = genCtx.Topic.ID + ".examples.yaml"
-		}
+		fileName = genCtx.Topic.ID + ".examples.yaml"
 	}
 	if fileName == "" {
 		return nil
@@ -471,6 +486,7 @@ func (p *Pipeline) generate(ctx context.Context, genCtx *generator.GenerationCon
 		if schemaPath, ok := resolver.ResolveSchemaPath(schemaType, schemasDir); ok {
 			if data, err := os.ReadFile(schemaPath); err == nil {
 				genCtx.SchemaRules = string(data)
+				genCtx.SchemaFieldGuide = ExtractSchemaDescriptions(string(data))
 			}
 		}
 	}

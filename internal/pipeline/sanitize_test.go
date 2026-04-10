@@ -163,3 +163,89 @@ func TestSanitizeYAMLQuoting_UnterminatedQuote(t *testing.T) {
 		t.Errorf("unterminated quote should be unchanged, got: %q", got)
 	}
 }
+
+func TestFixYAMLColonSpacing(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "missing space after colon",
+			input: "    text:hubungkaitkan waktu subur",
+			want:  "    text: hubungkaitkan waktu subur",
+		},
+		{
+			name:  "already has space",
+			input: "    text: hubungkaitkan waktu subur",
+			want:  "    text: hubungkaitkan waktu subur",
+		},
+		{
+			name:  "colon in quoted string unchanged",
+			input: `    text: "value:with:colons"`,
+			want:  `    text: "value:with:colons"`,
+		},
+		{
+			name:  "multiple lines mixed",
+			input: "id: SC1-04\n    text:hubung\nname: test",
+			want:  "id: SC1-04\n    text: hubung\nname: test",
+		},
+		{
+			name:  "empty value after colon",
+			input: "key:",
+			want:  "key:",
+		},
+		{
+			name:  "colon followed by space",
+			input: "key: value",
+			want:  "key: value",
+		},
+		{
+			name:  "colon followed by newline",
+			input: "key:\n  nested: val",
+			want:  "key:\n  nested: val",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FixYAMLColonSpacing(tt.input)
+			if got != tt.want {
+				t.Errorf("FixYAMLColonSpacing()\ngot:  %q\nwant: %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemoveDuplicateKeys(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "duplicate top-level key",
+			input: "id: SC1-07\nofficial_ref: \"Bab 7\"\nname: Udara\nofficial_ref: \"7.1\"\ndifficulty: beginner",
+			want:  "id: SC1-07\nofficial_ref: \"Bab 7\"\nname: Udara\ndifficulty: beginner",
+		},
+		{
+			name:  "no duplicates",
+			input: "id: SC1-01\nname: Test\ndifficulty: beginner",
+			want:  "id: SC1-01\nname: Test\ndifficulty: beginner",
+		},
+		{
+			name:  "duplicate with nested content removed",
+			input: "id: SC1-07\nofficial_ref: \"Bab 7\"\nofficial_ref:\n  - \"7.1\"\n  - \"7.2\"\nname: Udara",
+			want:  "id: SC1-07\nofficial_ref: \"Bab 7\"\nname: Udara",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RemoveDuplicateKeys(tt.input)
+			if got != tt.want {
+				t.Errorf("RemoveDuplicateKeys()\ngot:  %q\nwant: %q", got, tt.want)
+			}
+		})
+	}
+}

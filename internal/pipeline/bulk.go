@@ -341,6 +341,9 @@ func processChunk(ctx context.Context, req BulkRequest, chunk parser.Chunk) (str
 	schemaSection := ""
 	if req.TopicSchema != "" {
 		schemaSection = fmt.Sprintf("\nJSON SCHEMA (your output MUST conform to this schema — include ALL required fields):\n```json\n%s\n```\n", req.TopicSchema)
+		if fieldGuide := ExtractSchemaDescriptions(req.TopicSchema); fieldGuide != "" {
+			schemaSection += "\n" + fieldGuide
+		}
 	}
 
 	prompt := fmt.Sprintf(
@@ -422,13 +425,21 @@ RULES:
 
 	content := StripCodeFences(resp.Content)
 
-	// Fix double-quoted YAML strings containing LaTeX backslash sequences.
+	// Fix common AI-generated YAML issues.
+	content = FixYAMLColonSpacing(content)
+	content = RemoveDuplicateKeys(content)
 	content = SanitizeYAMLQuoting(content)
 
 	// Post-process: ensure mastery, ai_teaching_notes, and assessments_file
 	// fields are present. AI models often drop these from their output even
 	// when they appear in the prompt template.
 	content = EnsureTopicFields(content, topicID)
+
+	// Enforce schema constraints: add missing required fields, quote strings.
+	if req.TopicSchema != "" {
+		content = EnforceSchemaRequiredFields(content, req.TopicSchema)
+		content = EnforceStringQuoting(content, req.TopicSchema)
+	}
 
 	return content, nil
 }

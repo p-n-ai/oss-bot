@@ -77,6 +77,7 @@ type GenerationContext struct {
 	Siblings           []Topic
 	ExistingNotes      string
 	SchemaRules        string
+	SchemaFieldGuide   string   // Human-readable field descriptions extracted from schema
 	ValidationFeedback []string // Populated on retry after validation failure
 }
 
@@ -130,8 +131,14 @@ func BuildContext(repoDir, topicID string) (*GenerationContext, error) {
 }
 
 // FindTopicFile searches the repo for a topic file with the given ID.
+// It first tries matching by parsing the YAML `id` field. If that fails
+// (e.g. the file has YAML syntax errors), it falls back to matching by
+// filename convention ({topicID}.yaml).
 func FindTopicFile(repoDir, topicID string) (string, error) {
 	var found string
+	var filenameMatch string // fallback: match by filename
+
+	expectedFilename := topicID + ".yaml"
 
 	err := filepath.Walk(repoDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -144,6 +151,11 @@ func FindTopicFile(repoDir, topicID string) (string, error) {
 			return nil
 		}
 
+		// Fallback: match by filename (e.g. SC1-04.yaml for topicID "SC1-04").
+		if filepath.Base(path) == expectedFilename && filenameMatch == "" {
+			filenameMatch = path
+		}
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil
@@ -153,7 +165,7 @@ func FindTopicFile(repoDir, topicID string) (string, error) {
 			ID string `yaml:"id"`
 		}
 		if err := yaml.Unmarshal(data, &partial); err != nil {
-			return nil
+			return nil // YAML parse error — rely on filename fallback
 		}
 
 		if partial.ID == topicID {
@@ -166,10 +178,13 @@ func FindTopicFile(repoDir, topicID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if found == "" {
-		return "", fmt.Errorf("topic %s not found in %s", topicID, repoDir)
+	if found != "" {
+		return found, nil
 	}
-	return found, nil
+	if filenameMatch != "" {
+		return filenameMatch, nil
+	}
+	return "", fmt.Errorf("topic %s not found in %s", topicID, repoDir)
 }
 
 // loadTopic parses a topic YAML file.

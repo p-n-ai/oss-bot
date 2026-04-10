@@ -62,6 +62,11 @@ func BuildExamplesPrompt(genCtx *GenerationContext) string {
 		sb.WriteString("\n```\n\n")
 	}
 
+	if genCtx.SchemaFieldGuide != "" {
+		sb.WriteString(genCtx.SchemaFieldGuide)
+		sb.WriteString("\n")
+	}
+
 	sb.WriteString(fmt.Sprintf(`## Requirements
 - Generate 3 worked examples covering different difficulty levels (easy, medium, hard)
 - Each example must include a real_world_analogy, misconception_alert, scenario, and step-by-step working
