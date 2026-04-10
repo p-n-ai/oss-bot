@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/p-n-ai/oss-bot/internal/ai"
@@ -1030,6 +1031,7 @@ func runImport(cmd *cobra.Command, _ []string) error {
 			force:          force,
 			topicsDir:      topicsDir,
 			provider:       reasoningProvider,
+			baseProvider:   provider,
 		})
 	}
 
@@ -1044,6 +1046,7 @@ func runImport(cmd *cobra.Command, _ []string) error {
 		topicsDir:      topicsDir,
 		repoPath:       repoPath,
 		provider:       reasoningProvider,
+		baseProvider:   provider,
 	})
 }
 
@@ -1059,6 +1062,7 @@ type importChunkOpts struct {
 	force          bool
 	topicsDir      string
 	provider       ai.Provider
+	baseProvider   ai.Provider // faster model for merge (non-reasoning)
 }
 
 // runImportChunkMode runs the legacy chunk-based import, splitting the PDF by a keyword
@@ -1108,7 +1112,7 @@ func runImportChunkMode(cmd *cobra.Command, text string, opts importChunkOpts) e
 		return fmt.Errorf("bulk import: %w", err)
 	}
 
-	return writeImportResults(cmd.Context(), result.Topics, opts.provider, importWriteOpts{
+	return writeImportResults(cmd.Context(), result.Topics, opts.baseProvider, importWriteOpts{
 		subjectGradeID: opts.subjectGradeID,
 		filterTopicID:  opts.filterTopicID,
 		force:          opts.force,
@@ -1132,6 +1136,7 @@ type importWholeOpts struct {
 	topicsDir      string
 	repoPath       string
 	provider       ai.Provider
+	baseProvider   ai.Provider // faster model for merge (non-reasoning)
 }
 
 // runImportWholeMode sends the entire PDF content to the AI as context,
@@ -1247,7 +1252,7 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 	}
 	fmt.Printf("Extracted %d topics from AI response\n", len(topics))
 
-	return writeImportResults(cmd.Context(), topics, opts.provider, importWriteOpts{
+	return writeImportResults(cmd.Context(), topics, opts.baseProvider, importWriteOpts{
 		subjectGradeID: opts.subjectGradeID,
 		filterTopicID:  opts.filterTopicID,
 		force:          opts.force,
@@ -1271,11 +1276,31 @@ type importWriteOpts struct {
 	errors         []error
 }
 
+// mergeJob describes one AI merge to run in parallel.
+type mergeJob struct {
+	outPath      string
+	existingData string
+	newContent   string
+	heading      string
+}
+
+// mergeResult holds the outcome of a parallel merge.
+type mergeResult struct {
+	outPath  string
+	content  string
+	duration time.Duration
+	err      error
+}
+
 // writeImportResults writes topic results to YAML files, merging with existing content
 // when appropriate. This is shared by both chunk and whole-PDF import modes.
+// AI merges use the base provider (faster than reasoning) and run in parallel.
 func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, provider ai.Provider, opts importWriteOpts) error {
 	written := 0
 	merged := 0
+	var mergeJobs []mergeJob
+
+	// First pass: write new files, replace forced files, collect merge jobs.
 	for _, tr := range topics {
 		if tr.Err != nil || strings.TrimSpace(tr.Output) == "" {
 			continue
@@ -1307,18 +1332,13 @@ func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, prov
 				fmt.Printf("  replaced: %s\n", outPath)
 				merged++
 			} else {
-				fmt.Printf("  merging: %s\n", outPath)
-				mergedContent, mergeErr := mergeTopicYAML(ctx, provider, string(existingData), tr.Output, tr.Heading)
-				if mergeErr != nil {
-					fmt.Fprintf(os.Stderr, "  ⚠ AI merge failed for %s: %v — skipping\n", outPath, mergeErr)
-					continue
-				}
-				if err := os.WriteFile(outPath, []byte(mergedContent), 0644); err != nil {
-					fmt.Fprintf(os.Stderr, "  ⚠ writing merged %s: %v\n", outPath, err)
-					continue
-				}
-				fmt.Printf("  merged: %s\n", outPath)
-				merged++
+				// Queue for parallel AI merge.
+				mergeJobs = append(mergeJobs, mergeJob{
+					outPath:      outPath,
+					existingData: string(existingData),
+					newContent:   tr.Output,
+					heading:      tr.Heading,
+				})
 			}
 		} else {
 			if err := os.WriteFile(outPath, []byte(tr.Output), 0644); err != nil {
@@ -1327,6 +1347,42 @@ func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, prov
 			}
 			fmt.Printf("  wrote: %s\n", outPath)
 			written++
+		}
+	}
+
+	// Second pass: run AI merges in parallel.
+	if len(mergeJobs) > 0 {
+		fmt.Printf("Merging %d existing files in parallel...\n", len(mergeJobs))
+		results := make([]mergeResult, len(mergeJobs))
+		var wg sync.WaitGroup
+		for i, job := range mergeJobs {
+			wg.Add(1)
+			go func(idx int, j mergeJob) {
+				defer wg.Done()
+				start := time.Now()
+				content, err := mergeTopicYAML(ctx, provider, j.existingData, j.newContent, j.heading)
+				results[idx] = mergeResult{
+					outPath:  j.outPath,
+					content:  content,
+					duration: time.Since(start),
+					err:      err,
+				}
+			}(i, job)
+		}
+		wg.Wait()
+
+		// Write results and report.
+		for _, r := range results {
+			if r.err != nil {
+				fmt.Fprintf(os.Stderr, "  ⚠ AI merge failed for %s: %v — skipping\n", r.outPath, r.err)
+				continue
+			}
+			if err := os.WriteFile(r.outPath, []byte(r.content), 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "  ⚠ writing merged %s: %v\n", r.outPath, err)
+				continue
+			}
+			fmt.Printf("  merged in %s: %s\n", r.duration.Round(10*time.Millisecond), r.outPath)
+			merged++
 		}
 	}
 
@@ -1997,7 +2053,7 @@ Merge rules:
 	if err != nil {
 		return "", err
 	}
-	return resp.Content, nil
+	return pipeline.StripCodeFences(resp.Content), nil
 }
 
 // resolveSourceText reads text from a file path or returns the provided text directly.
