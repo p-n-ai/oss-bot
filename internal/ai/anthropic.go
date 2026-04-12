@@ -100,7 +100,8 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
-		Model string `json:"model"`
+		Model      string `json:"model"`
+		StopReason string `json:"stop_reason"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return CompletionResponse{}, fmt.Errorf("parsing response: %w", err)
@@ -110,12 +111,28 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 		return CompletionResponse{}, fmt.Errorf("Anthropic returned no content")
 	}
 
+	stopReason := normalizeAnthropicStopReason(result.StopReason)
 	return CompletionResponse{
 		Content:      result.Content[0].Text,
 		Model:        result.Model,
 		InputTokens:  result.Usage.InputTokens,
 		OutputTokens: result.Usage.OutputTokens,
+		StopReason:   stopReason,
 	}, nil
+}
+
+// normalizeAnthropicStopReason maps Anthropic's stop_reason values to the
+// shared CompletionResponse.StopReason vocabulary.
+// Anthropic values: "end_turn", "max_tokens", "stop_sequence", "tool_use".
+func normalizeAnthropicStopReason(r string) string {
+	switch r {
+	case "max_tokens":
+		return "max_tokens"
+	case "end_turn", "stop_sequence", "tool_use":
+		return "stop"
+	default:
+		return ""
+	}
 }
 
 func (p *AnthropicProvider) StreamComplete(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error) {

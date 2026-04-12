@@ -37,3 +37,9 @@ func TestNewProvider_Unknown(t *testing.T) {
 		t.Error("NewProvider(unknown) should return error")
 	}
 }
+
+func TestErrTruncated_Message(t *testing.T) {
+	if ai.ErrTruncated.Error() == "" {
+		t.Error("ErrTruncated.Error() returned empty string")
+	}
+}

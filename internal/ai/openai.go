@@ -128,6 +128,7 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, jsonBody []byte) (Comple
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens     int `json:"prompt_tokens"`
@@ -148,7 +149,22 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, jsonBody []byte) (Comple
 		Model:        result.Model,
 		InputTokens:  result.Usage.PromptTokens,
 		OutputTokens: result.Usage.CompletionTokens,
+		StopReason:   normalizeOpenAIFinishReason(result.Choices[0].FinishReason),
 	}, nil
+}
+
+// normalizeOpenAIFinishReason maps OpenAI's finish_reason values to the
+// shared CompletionResponse.StopReason vocabulary.
+// OpenAI values: "stop", "length", "content_filter", "tool_calls", "function_call".
+func normalizeOpenAIFinishReason(r string) string {
+	switch r {
+	case "length":
+		return "max_tokens"
+	case "stop", "tool_calls", "function_call":
+		return "stop"
+	default:
+		return ""
+	}
 }
 
 // transientHTTPError represents a retryable HTTP status (5xx, 429).

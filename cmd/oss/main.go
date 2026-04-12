@@ -950,6 +950,7 @@ Examples:
 	cmd.Flags().String("topic-id", "", "Import only the specified topic (e.g. MT4-01)")
 	cmd.Flags().String("from-text", "", "Topic name reference text (one topic per line, used as hints for AI)")
 	cmd.Flags().String("from-file", "", "Path to file containing topic name references (alternative to --from-text)")
+	cmd.Flags().Bool("allow-new-topics", false, "Allow writing topic files whose IDs are not in the scaffold (default: reject unknown IDs when scaffold exists)")
 	cmd.MarkFlagRequired("pdf")
 	cmd.MarkFlagRequired("syllabus")
 	return cmd
@@ -967,6 +968,7 @@ func runImport(cmd *cobra.Command, _ []string) error {
 	chunkKeyword, _ := cmd.Flags().GetString("chunk")
 	fromText, _ := cmd.Flags().GetString("from-text")
 	fromFile, _ := cmd.Flags().GetString("from-file")
+	allowNewTopics, _ := cmd.Flags().GetBool("allow-new-topics")
 
 	if filterTopicID != "" && subjectGradeID == "" {
 		return fmt.Errorf("--topic-id requires --subject-grade flag")
@@ -1030,6 +1032,7 @@ func runImport(cmd *cobra.Command, _ []string) error {
 			workers:        workers,
 			mode:           mode,
 			force:          force,
+			allowNewTopics: allowNewTopics,
 			topicsDir:      topicsDir,
 			repoPath:       repoPath,
 			provider:       reasoningProvider,
@@ -1045,6 +1048,7 @@ func runImport(cmd *cobra.Command, _ []string) error {
 		fromFile:       fromFile,
 		mode:           mode,
 		force:          force,
+		allowNewTopics: allowNewTopics,
 		topicsDir:      topicsDir,
 		repoPath:       repoPath,
 		provider:       reasoningProvider,
@@ -1062,6 +1066,7 @@ type importChunkOpts struct {
 	workers        int
 	mode           pipeline.ExecutionMode
 	force          bool
+	allowNewTopics bool
 	topicsDir      string
 	repoPath       string
 	provider       ai.Provider
@@ -1072,6 +1077,12 @@ type importChunkOpts struct {
 // (e.g. TAJUK) and processing each chunk in parallel.
 func runImportChunkMode(cmd *cobra.Command, text string, opts importChunkOpts) error {
 	fmt.Printf("Chunk mode: splitting by %q\n", opts.chunkKeyword)
+
+	// Load scaffold topics so writeImportResults can reject unknown IDs.
+	scaffoldTopics := loadScaffoldTopics(opts.topicsDir)
+	if len(scaffoldTopics) > 0 {
+		fmt.Printf("Found %d scaffold topic stubs as reference\n", len(scaffoldTopics))
+	}
 
 	// Try DSKP-specific extraction first; fall back to generic chunker.
 	var chunks []parser.Chunk
@@ -1129,10 +1140,19 @@ func runImportChunkMode(cmd *cobra.Command, text string, opts importChunkOpts) e
 		return fmt.Errorf("bulk import: %w", err)
 	}
 
+	// Apply ID remap against scaffold before writing so the write-guard sees
+	// the corrected IDs. Chunk mode normally derives IDs deterministically,
+	// but the AI may still override via the `id:` field in its output.
+	if n := remapTopicIDs(result.Topics, scaffoldTopics); n > 0 {
+		fmt.Printf("Remapped %d topic ID(s) to scaffold\n", n)
+	}
+
 	return writeImportResults(cmd.Context(), result.Topics, opts.baseProvider, importWriteOpts{
 		subjectGradeID: opts.subjectGradeID,
 		filterTopicID:  opts.filterTopicID,
 		force:          opts.force,
+		allowNewTopics: opts.allowNewTopics,
+		scaffoldTopics: scaffoldTopics,
 		topicsDir:      opts.topicsDir,
 		processedCount: result.ProcessedChunks,
 		totalCount:     len(chunks),
@@ -1150,6 +1170,7 @@ type importWholeOpts struct {
 	fromFile       string
 	mode           pipeline.ExecutionMode
 	force          bool
+	allowNewTopics bool
 	topicsDir      string
 	repoPath       string
 	provider       ai.Provider
@@ -1213,22 +1234,10 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 	prefix := subjectPrefix(subjectID)
 	grade := gradeNumber(subjectID)
 
-	// Build topic reference section for the prompt.
+	// Optional topic name reference from --from-text / --from-file.
 	var topicRefSection string
-	if len(scaffoldTopics) > 0 {
-		var sb strings.Builder
-		sb.WriteString("KNOWN TOPICS (from scaffold — use these IDs and match to content in the document):\n")
-		for _, t := range scaffoldTopics {
-			sb.WriteString(fmt.Sprintf("  - %s: %q", t.ID, t.Name))
-			if t.NameEn != "" && t.NameEn != t.Name {
-				sb.WriteString(fmt.Sprintf(" (%s)", t.NameEn))
-			}
-			sb.WriteString("\n")
-		}
-		topicRefSection = sb.String()
-	}
 	if topicRefText != "" {
-		topicRefSection += "\nTOPIC NAME REFERENCE (use these as hints to identify topics in the document):\n" + topicRefText + "\n"
+		topicRefSection = "TOPIC NAME REFERENCE (use these as hints to identify topics in the document):\n" + topicRefText + "\n"
 	}
 
 	// Resolve the topic schema (subject-level override or global fallback)
@@ -1285,28 +1294,10 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 	}
 	fmt.Printf("Extracted %d topics from AI response\n", len(topics))
 
-	// Post-process: fix topic IDs that the AI may have mangled (e.g. TP6-SC1-02 → SC1-02).
-	// When scaffold topics exist, we have a known-good set of IDs. If the AI generated
-	// an ID that contains a known scaffold ID as a substring, correct it.
-	if len(scaffoldTopics) > 0 {
-		knownIDs := make(map[string]bool, len(scaffoldTopics))
-		for _, t := range scaffoldTopics {
-			knownIDs[t.ID] = true
-		}
-		for i, tr := range topics {
-			yamlID, _ := extractTopicIDAndName(tr.Output)
-			if yamlID == "" || knownIDs[yamlID] {
-				continue // already correct or unparseable
-			}
-			// Check if a known ID is embedded in the mangled ID (e.g. "TP6-SC1-02" contains "SC1-02").
-			for kid := range knownIDs {
-				if strings.Contains(yamlID, kid) {
-					fmt.Printf("  fixing topic ID: %s → %s\n", yamlID, kid)
-					topics[i].Output = strings.Replace(tr.Output, "id: "+yamlID, "id: "+kid, 1)
-					break
-				}
-			}
-		}
+	// Post-process: fix topic IDs that the AI may have mangled (e.g. TP6-SC1-02 → SC1-02,
+	// or TP6-01 → SC3-01 by numeric-suffix match).
+	if n := remapTopicIDs(topics, scaffoldTopics); n > 0 {
+		fmt.Printf("Remapped %d topic ID(s) to scaffold\n", n)
 	}
 
 	// Filter to the single requested topic when --topic-id is set.
@@ -1329,6 +1320,8 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 		subjectGradeID: opts.subjectGradeID,
 		filterTopicID:  opts.filterTopicID,
 		force:          opts.force,
+		allowNewTopics: opts.allowNewTopics,
+		scaffoldTopics: scaffoldTopics,
 		topicsDir:      opts.topicsDir,
 		processedCount: len(topics),
 		totalCount:     len(topics),
@@ -1337,11 +1330,189 @@ func runImportWholeMode(cmd *cobra.Command, text string, opts importWholeOpts) e
 	})
 }
 
+// remapTopicIDs fixes AI-generated topic IDs so they match a scaffold ID, using
+// three strategies in order:
+//  1. Substring match: "TP6-SC3-01" contains "SC3-01" → rewrite to "SC3-01".
+//  2. Numeric-suffix match: "TP6-01" → the unique scaffold topic whose ID ends in "-01".
+//  3. Name-similarity match: compare the YAML's name / name_en against scaffold
+//     topic names using token-set Jaccard; the best scaffold ID above a threshold
+//     wins. This catches cases where the AI emits a bare garbage ID like "TP6"
+//     but the topic name itself is intact (e.g. "Rangsangan dan Gerak Balas").
+//
+// A claimed set prevents multiple AI topics from collapsing onto the same
+// scaffold ID. Unmapped topics are left untouched for the write-guard to catch.
+// Returns the number of topics remapped.
+func remapTopicIDs(topics []pipeline.TopicResult, scaffoldTopics []scaffoldTopic) int {
+	if len(scaffoldTopics) == 0 {
+		return 0
+	}
+	knownIDs := make(map[string]bool, len(scaffoldTopics))
+	suffixIndex := make(map[int][]string) // 1 → ["SC3-01"]
+	for _, t := range scaffoldTopics {
+		knownIDs[t.ID] = true
+		if idx := strings.LastIndex(t.ID, "-"); idx >= 0 {
+			if n, err := strconv.Atoi(t.ID[idx+1:]); err == nil {
+				suffixIndex[n] = append(suffixIndex[n], t.ID)
+			}
+		}
+	}
+
+	// Track scaffold IDs already claimed so we don't map multiple AI topics
+	// onto the same file.
+	claimed := make(map[string]bool)
+
+	fixed := 0
+	for i, tr := range topics {
+		yamlID, yamlName := extractTopicIDAndName(tr.Output)
+		if yamlID == "" {
+			continue
+		}
+		if knownIDs[yamlID] {
+			claimed[yamlID] = true
+			continue
+		}
+
+		var match string
+		// Strategy 1: substring match against unclaimed scaffold IDs.
+		for kid := range knownIDs {
+			if claimed[kid] {
+				continue
+			}
+			if strings.Contains(yamlID, kid) {
+				match = kid
+				break
+			}
+		}
+		// Strategy 2: numeric-suffix match (unique unclaimed candidate).
+		if match == "" {
+			if idx := strings.LastIndex(yamlID, "-"); idx >= 0 {
+				if n, err := strconv.Atoi(yamlID[idx+1:]); err == nil {
+					var free []string
+					for _, c := range suffixIndex[n] {
+						if !claimed[c] {
+							free = append(free, c)
+						}
+					}
+					if len(free) == 1 {
+						match = free[0]
+					}
+				}
+			}
+		}
+		// Strategy 3: name similarity against unclaimed scaffold topics.
+		if match == "" && (yamlName != "" || extractTopicNameEn(tr.Output) != "") {
+			yamlNameEn := extractTopicNameEn(tr.Output)
+			const threshold = 0.5
+			bestScore := 0.0
+			for _, st := range scaffoldTopics {
+				if claimed[st.ID] {
+					continue
+				}
+				s := nameSimilarity(yamlName, st.Name)
+				if se := nameSimilarity(yamlNameEn, st.NameEn); se > s {
+					s = se
+				}
+				if s > bestScore {
+					bestScore = s
+					match = st.ID
+				}
+			}
+			if bestScore < threshold {
+				match = ""
+			}
+		}
+		if match == "" {
+			continue
+		}
+		fmt.Printf("  fixing topic ID: %s → %s\n", yamlID, match)
+		topics[i].Output = rewriteTopicIDLine(tr.Output, match)
+		claimed[match] = true
+		fixed++
+	}
+	return fixed
+}
+
+// extractTopicNameEn pulls the name_en field from a topic YAML string.
+func extractTopicNameEn(yamlContent string) string {
+	for _, line := range strings.Split(yamlContent, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "name_en:") {
+			v := strings.TrimSpace(strings.TrimPrefix(line, "name_en:"))
+			return strings.Trim(v, "\"")
+		}
+	}
+	return ""
+}
+
+// rewriteTopicIDLine replaces the first top-level `id:` line in a YAML topic
+// with the given new ID. Preserves indentation and is robust to whether the
+// original value is quoted. Returns the content unchanged if no id line is found.
+func rewriteTopicIDLine(yamlContent, newID string) string {
+	lines := strings.Split(yamlContent, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		// Match the topic id field specifically — skip subject_id, syllabus_id, etc.
+		if strings.HasPrefix(trimmed, "id:") && !strings.HasPrefix(trimmed, "id_") {
+			indent := line[:len(line)-len(trimmed)]
+			lines[i] = indent + "id: " + newID
+			return strings.Join(lines, "\n")
+		}
+	}
+	return yamlContent
+}
+
+// nameSimilarity computes token-set Jaccard similarity between two names after
+// normalizing to lowercase alphanumeric tokens. Returns 0 when either side has
+// no tokens. Short stopword-like tokens ("and", "of", "dan") are kept — they're
+// unlikely to dominate and removing them risks false positives.
+func nameSimilarity(a, b string) float64 {
+	ta := nameTokens(a)
+	tb := nameTokens(b)
+	if len(ta) == 0 || len(tb) == 0 {
+		return 0
+	}
+	aset := make(map[string]bool, len(ta))
+	for _, t := range ta {
+		aset[t] = true
+	}
+	bset := make(map[string]bool, len(tb))
+	for _, t := range tb {
+		bset[t] = true
+	}
+	intersect := 0
+	for t := range aset {
+		if bset[t] {
+			intersect++
+		}
+	}
+	union := len(aset) + len(bset) - intersect
+	if union == 0 {
+		return 0
+	}
+	return float64(intersect) / float64(union)
+}
+
+// nameTokens lowercases the input and splits on any non-alphanumeric character.
+func nameTokens(s string) []string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune(' ')
+		}
+	}
+	return strings.Fields(b.String())
+}
+
 // importWriteOpts holds options shared by both import modes for writing results.
 type importWriteOpts struct {
 	subjectGradeID string
 	filterTopicID  string
 	force          bool
+	allowNewTopics bool
+	scaffoldTopics []scaffoldTopic
 	topicsDir      string
 	processedCount int
 	totalCount     int
@@ -1372,6 +1543,16 @@ func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, prov
 	written := 0
 	merged := 0
 	var mergeJobs []mergeJob
+	var rejected []string // fileIDs rejected because they are not in the scaffold
+
+	// Build the scaffold ID set once for the write-guard.
+	var scaffoldIDs map[string]bool
+	if len(opts.scaffoldTopics) > 0 && !opts.allowNewTopics {
+		scaffoldIDs = make(map[string]bool, len(opts.scaffoldTopics))
+		for _, t := range opts.scaffoldTopics {
+			scaffoldIDs[t.ID] = true
+		}
+	}
 
 	// First pass: write new files, replace forced files, collect merge jobs.
 	for _, tr := range topics {
@@ -1403,6 +1584,15 @@ func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, prov
 
 		// Skip topics that don't match --topic-id filter.
 		if opts.filterTopicID != "" && fileID != opts.filterTopicID {
+			continue
+		}
+
+		// Write-guard: when a scaffold exists, only write IDs that belong to it.
+		// Prevents the AI from silently creating brand-new topic files
+		// (e.g. TP6-01.yaml alongside the scaffold's SC3-01.yaml).
+		if scaffoldIDs != nil && !scaffoldIDs[fileID] {
+			fmt.Fprintf(os.Stderr, "  ⚠ rejecting topic %q: id %q is not in the scaffold — re-run with --allow-new-topics to override\n", tr.Heading, fileID)
+			rejected = append(rejected, fileID)
 			continue
 		}
 
@@ -1474,6 +1664,18 @@ func writeImportResults(ctx context.Context, topics []pipeline.TopicResult, prov
 	fmt.Printf("\nProcessed %d/%d topics in %s — wrote %d new, merged %d existing file(s) in %s\n",
 		opts.processedCount, opts.totalCount, opts.duration.Round(time.Second),
 		written, merged, opts.topicsDir)
+
+	if len(rejected) > 0 {
+		fmt.Fprintf(os.Stderr, "\n%d topic(s) rejected because their IDs are not in the scaffold: %s\n",
+			len(rejected), strings.Join(rejected, ", "))
+		fmt.Fprintf(os.Stderr, "Scaffold IDs: ")
+		var scaffoldList []string
+		for _, t := range opts.scaffoldTopics {
+			scaffoldList = append(scaffoldList, t.ID)
+		}
+		fmt.Fprintf(os.Stderr, "%s\n", strings.Join(scaffoldList, ", "))
+		fmt.Fprintf(os.Stderr, "Re-run with --allow-new-topics to write these files anyway.\n")
+	}
 
 	if len(opts.errors) > 0 {
 		fmt.Fprintf(os.Stderr, "%d topics failed:\n", len(opts.errors))
@@ -1870,6 +2072,51 @@ type scaffoldTopic struct {
 	NameEn string
 }
 
+// parseTopLevelTopicFields extracts id, name, and name_en from a topic YAML
+// string, matching only top-level keys (no leading whitespace). This avoids
+// picking up nested ids inside arrays like performance_standards, which share
+// the same key name.
+func parseTopLevelTopicFields(yamlContent string) scaffoldTopic {
+	var t scaffoldTopic
+	for _, line := range strings.Split(yamlContent, "\n") {
+		// Strip trailing whitespace/CR but keep leading whitespace so we can
+		// detect indentation — nested keys are ignored.
+		line = strings.TrimRight(line, " \t\r")
+		if line == "" || line[0] == ' ' || line[0] == '\t' || line[0] == '#' || line[0] == '-' {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "id:"):
+			if t.ID == "" {
+				t.ID = unquoteYAMLScalar(strings.TrimPrefix(line, "id:"))
+			}
+		case strings.HasPrefix(line, "name_en:"):
+			if t.NameEn == "" {
+				t.NameEn = unquoteYAMLScalar(strings.TrimPrefix(line, "name_en:"))
+			}
+		case strings.HasPrefix(line, "name:"):
+			if t.Name == "" {
+				t.Name = unquoteYAMLScalar(strings.TrimPrefix(line, "name:"))
+			}
+		}
+	}
+	return t
+}
+
+// unquoteYAMLScalar trims whitespace and surrounding double or single quotes
+// from a YAML scalar value. It does not handle escape sequences because the
+// scaffold stubs never use them.
+func unquoteYAMLScalar(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) >= 2 {
+		first, last := v[0], v[len(v)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+			v = v[1 : len(v)-1]
+		}
+	}
+	return v
+}
+
 // loadScaffoldTopics reads existing scaffold topic stubs from the topics directory
 // and returns their IDs and names for use as AI reference.
 func loadScaffoldTopics(topicsDir string) []scaffoldTopic {
@@ -1895,18 +2142,17 @@ func loadScaffoldTopics(topicsDir string) []scaffoldTopic {
 			continue
 		}
 
-		// Extract id, name, and name_en from the YAML stub.
-		t := scaffoldTopic{}
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "id:") {
-				t.ID = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
-			} else if strings.HasPrefix(line, "name:") && !strings.HasPrefix(line, "name_en:") {
-				t.Name = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "name:")), "\"")
-			} else if strings.HasPrefix(line, "name_en:") {
-				t.NameEn = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "name_en:")), "\"")
-			}
-		}
+		// Extract top-level id, name, and name_en from the YAML stub.
+		// IMPORTANT: only match TOP-LEVEL keys (no leading whitespace) so we
+		// don't pick up nested ids inside performance_standards, content_standards,
+		// learning_objectives, etc. Historically the loader trimmed each line
+		// before matching, which caused deeply-nested entries like
+		//   performance_standards:
+		//     - level: 6
+		//       id: "TP6"
+		// to overwrite the real topic id — every scaffold file ended up loading
+		// as "TP6".
+		t := parseTopLevelTopicFields(string(data))
 		if t.ID != "" {
 			topics = append(topics, t)
 		}
@@ -1934,28 +2180,17 @@ type wholePDFPromptOpts struct {
 // buildWholePDFPrompt constructs the prompt for whole-PDF import mode.
 // The entire PDF text is included as context so the AI can cross-reference
 // topics, prerequisites, and learning areas across the full document.
+//
+// When scaffold topics are provided, the prompt is restructured so that the
+// scaffold task (fixed id+name pairs and an output skeleton) appears BEFORE
+// the document content, and the id constraint is repeated AFTER the document
+// content as a "sandwich" reinforcement. This is important because reasoning
+// models tend to form their own topic structure from document artifacts
+// (e.g. "TP6" from "Tahap Penguasaan 6") if they read the document first.
 func buildWholePDFPrompt(pdfText string, opts wholePDFPromptOpts) string {
 	subjectID := opts.subjectGradeID
 	if subjectID == "" {
 		subjectID = opts.syllabusID
-	}
-
-	// Build topic ID instructions.
-	topicIDInstruction := fmt.Sprintf(
-		"Topic IDs MUST follow the format: %s%s-NN (e.g. %s%s-01, %s%s-02, ...)",
-		opts.prefix, opts.grade, opts.prefix, opts.grade, opts.prefix, opts.grade,
-	)
-	if len(opts.scaffoldTopics) > 0 {
-		var idList []string
-		for _, t := range opts.scaffoldTopics {
-			idList = append(idList, t.ID)
-		}
-		topicIDInstruction = fmt.Sprintf(
-			"CRITICAL — Topic IDs: You MUST use EXACTLY one of these IDs for each topic: %s. "+
-				"Match each document topic to the closest scaffold topic by name. "+
-				"DO NOT invent new IDs, DO NOT combine theme/chapter numbers with these IDs, DO NOT add prefixes.",
-			strings.Join(idList, ", "),
-		)
 	}
 
 	filterInstruction := ""
@@ -1963,8 +2198,7 @@ func buildWholePDFPrompt(pdfText string, opts wholePDFPromptOpts) string {
 		filterInstruction = fmt.Sprintf("\n\nIMPORTANT: Only extract and generate YAML for topic %s. Ignore all other topics.", opts.filterTopicID)
 	}
 
-	// Build the schema section: if a resolved topic schema is available,
-	// include it so the AI generates all required fields (e.g. content_standards).
+	// Schema section (optional).
 	schemaSection := ""
 	if opts.topicSchema != "" {
 		schemaSection = fmt.Sprintf(`
@@ -1976,23 +2210,73 @@ JSON SCHEMA (your output MUST conform to this schema — include ALL required fi
 		}
 	}
 
-	prompt := fmt.Sprintf(`You are extracting ALL curriculum topics from an educational document and generating OSS-format YAML files.
+	// Scaffold task section (when scaffold exists) or generic format rule.
+	scaffoldTaskSection := ""
+	idReminder := ""
+	if len(opts.scaffoldTopics) > 0 {
+		var taskList strings.Builder
+		var skeleton strings.Builder
+		var idList []string
+		for i, t := range opts.scaffoldTopics {
+			line := fmt.Sprintf("  %s  %s", t.ID, t.Name)
+			if t.NameEn != "" && t.NameEn != t.Name {
+				line += fmt.Sprintf("  (%s)", t.NameEn)
+			}
+			taskList.WriteString(line + "\n")
 
-FULL DOCUMENT CONTENT:
-%s
+			if i > 0 {
+				skeleton.WriteString("---\n")
+			}
+			skeleton.WriteString(fmt.Sprintf("id: %s\n", t.ID))
+			skeleton.WriteString(fmt.Sprintf("name: %q\n", t.Name))
+			if t.NameEn != "" {
+				skeleton.WriteString(fmt.Sprintf("name_en: %q\n", t.NameEn))
+			}
+			skeleton.WriteString("# ...fill in content_standards, learning_objectives, prerequisites, etc. from the document...\n")
+
+			idList = append(idList, t.ID)
+		}
+		scaffoldTaskSection = fmt.Sprintf(`YOUR TASK:
+Extract content from the document for the following %d topics and generate ONE YAML block per topic.
+The id and name values below are FIXED — you MUST copy them VERBATIM into your output.
+Match each topic to the corresponding section in the document by the name.
+If the document contains additional topics not listed here, IGNORE them.
 
 %s
+Your response must contain EXACTLY %d YAML blocks separated by "---", with these id values: %s.
+DO NOT invent new ids. DO NOT use prefixes from the document like "TP", "TEMA", "BAB", or "Tahap Penguasaan".
+
+REQUIRED OUTPUT STRUCTURE — produce exactly these YAML documents in this order, reusing the id and name values verbatim:
+
+%s`,
+			len(opts.scaffoldTopics),
+			taskList.String(),
+			len(opts.scaffoldTopics),
+			strings.Join(idList, ", "),
+			skeleton.String(),
+		)
+
+		idReminder = fmt.Sprintf("\nREMEMBER — id values: %s. Do NOT emit any other ids.\n",
+			strings.Join(idList, ", "))
+	} else {
+		scaffoldTaskSection = fmt.Sprintf("Topic IDs MUST follow the format: %s%s-NN (e.g. %s%s-01, %s%s-02, ...)\n",
+			opts.prefix, opts.grade, opts.prefix, opts.grade, opts.prefix, opts.grade)
+	}
+
+	prompt := fmt.Sprintf(`You are extracting curriculum topics from an educational document and generating OSS-format YAML files.
+
+%s
+%s%s
 METADATA:
 - syllabus_id: %s
 - subject_grade_id: %s
 - country_id: %s
-- language: %s
-- %s%s
-%s
-INSTRUCTIONS:
-For EACH topic found in the document, generate a complete YAML document. Separate each topic with a line containing only "---".
+- language: %s%s
 
-Each topic YAML must include ALL fields marked as "required" in the JSON Schema above (if provided). At minimum, each topic must contain:
+INSTRUCTIONS:
+Generate a complete YAML document for each required topic. Separate each topic with a line containing only "---".
+
+Each topic YAML must include ALL fields marked as "required" in the JSON Schema (if provided). At minimum, each topic must contain:
 - id, name, name_en, subject_id, syllabus_id, country_id, language, difficulty
 - learning_objectives (array with id, text, text_en, bloom)
 - content_standards (if required by schema — extract from the document's content/learning standards)
@@ -2009,21 +2293,28 @@ Use these fixed values:
 RULES:
 - Output ONLY valid YAML — no markdown fences, no explanatory text before or after
 - Separate each topic with a line containing ONLY "---"
-- Extract ALL topics from the document, not just the first few
-- Extract ALL learning objectives from each topic section
-- Topic IDs: if KNOWN TOPICS are listed above, use EXACTLY those IDs — never invent new IDs or modify them
+- Topic IDs come from the YOUR TASK section above — never invent new ids from document artifacts
+- Extract ALL learning objectives from each matching topic section
 - name MUST be in the document language (%s), name_en MUST be English
 - learning_objectives text MUST be in the document language, text_en MUST be English
 - bloom levels: remember | understand | apply | analyze | evaluate | create
 - Infer bloom levels from verbs: list/recall/define → remember, explain/describe → understand, solve/calculate → apply, differentiate/examine → analyze, assess/justify → evaluate, design/develop → create
-- Prerequisites should reference topic IDs from this same document where applicable`,
-		pdfText,
+- Prerequisites should reference topic ids from the scaffold list where applicable
+
+FULL DOCUMENT CONTENT (extract from this):
+---
+%s
+---
+%s`,
+		scaffoldTaskSection,
 		opts.topicRefSection,
-		opts.syllabusID, subjectID, opts.countryID, opts.language,
-		topicIDInstruction, filterInstruction,
 		schemaSection,
+		opts.syllabusID, subjectID, opts.countryID, opts.language,
+		filterInstruction,
 		subjectID, opts.syllabusID, opts.countryID, opts.language,
 		opts.language,
+		pdfText,
+		idReminder,
 	)
 
 	return prompt
@@ -2141,11 +2432,14 @@ Merge rules:
 			{Role: "system", Content: "You are a curriculum YAML merge assistant. Produce a single merged YAML file that preserves all existing content and adds new material without duplication."},
 			{Role: "user", Content: prompt},
 		},
-		MaxTokens:   2048,
+		MaxTokens:   8192,
 		Temperature: 0.1,
 	})
 	if err != nil {
 		return "", err
+	}
+	if resp.StopReason == "max_tokens" {
+		return "", fmt.Errorf("merge for %q: %w (output_tokens=%d)", heading, ai.ErrTruncated, resp.OutputTokens)
 	}
 	return pipeline.StripCodeFences(resp.Content), nil
 }

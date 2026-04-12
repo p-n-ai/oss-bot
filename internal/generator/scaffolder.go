@@ -167,13 +167,20 @@ func (s *Scaffolder) ScaffoldSubject(ctx context.Context, req ScaffoldRequest) (
 	}
 
 	// Copy global schemas into subject schema/ directory for per-subject customization.
+	// Skip any schema that already exists at the destination so user customizations are preserved.
 	if req.GlobalSchemaDir != "" {
 		schemasRelDir := filepath.Join("curricula", country, req.SyllabusID, req.SubjectID, "schema")
 		schemaNames := []string{"assessments", "concept", "examples", "subject", "syllabus", "topic"}
 		for _, name := range schemaNames {
+			relPath := filepath.Join(schemasRelDir, name+".schema.json")
+			if req.OutputDir != "" {
+				if _, err := os.Stat(filepath.Join(req.OutputDir, relPath)); err == nil {
+					continue
+				}
+			}
 			src := filepath.Join(req.GlobalSchemaDir, name+".schema.json")
 			if data, err := os.ReadFile(src); err == nil {
-				files[filepath.Join(schemasRelDir, name+".schema.json")] = string(data)
+				files[relPath] = string(data)
 			}
 		}
 	}

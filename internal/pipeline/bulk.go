@@ -416,11 +416,14 @@ RULES:
 			{Role: "system", Content: "You are a curriculum analysis assistant. Extract structured learning content from source documents."},
 			{Role: "user", Content: prompt},
 		},
-		MaxTokens:   2048,
+		MaxTokens:   8192,
 		Temperature: 0.3,
 	})
 	if err != nil {
 		return "", err
+	}
+	if resp.StopReason == "max_tokens" {
+		return "", fmt.Errorf("topic %q: %w (output_tokens=%d)", topicID, ai.ErrTruncated, resp.OutputTokens)
 	}
 
 	content := StripCodeFences(resp.Content)

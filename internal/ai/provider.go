@@ -27,6 +27,20 @@ type CompletionResponse struct {
 	Model        string `json:"model"`
 	InputTokens  int    `json:"input_tokens"`
 	OutputTokens int    `json:"output_tokens"`
+	// StopReason is the normalized reason the model stopped generating.
+	// Values: "stop" (natural end), "max_tokens" (truncated by output limit),
+	// "" (unknown / provider didn't report).
+	StopReason string `json:"stop_reason,omitempty"`
+}
+
+// ErrTruncated indicates the model stopped because it hit the max_tokens limit.
+// Callers should retry with a larger MaxTokens or handle the partial output.
+var ErrTruncated = errTruncated{}
+
+type errTruncated struct{}
+
+func (errTruncated) Error() string {
+	return "AI response truncated: hit max_tokens limit (output is incomplete)"
 }
 
 // StreamChunk represents a streaming response chunk.

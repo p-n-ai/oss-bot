@@ -258,6 +258,68 @@ func TestScaffoldSubject_CopiesSchemas(t *testing.T) {
 	}
 }
 
+func TestScaffoldSubject_SkipsExistingSchemas(t *testing.T) {
+	globalSchemaDir := t.TempDir()
+	schemaNames := []string{"assessments", "concept", "examples", "subject", "syllabus", "topic"}
+	for _, name := range schemaNames {
+		content := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","title":"global-` + name + `"}`
+		os.WriteFile(filepath.Join(globalSchemaDir, name+".schema.json"), []byte(content), 0o644)
+	}
+
+	outputDir := t.TempDir()
+	// Pre-create a customized assessments schema at the destination.
+	existingRelPath := filepath.Join("curricula", "test", "test-syllabus", "test-syllabus-math", "schema", "assessments.schema.json")
+	existingFullPath := filepath.Join(outputDir, existingRelPath)
+	if err := os.MkdirAll(filepath.Dir(existingFullPath), 0o755); err != nil {
+		t.Fatalf("setup: mkdir: %v", err)
+	}
+	customContent := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","title":"custom-assessments"}`
+	if err := os.WriteFile(existingFullPath, []byte(customContent), 0o644); err != nil {
+		t.Fatalf("setup: write: %v", err)
+	}
+
+	mock := ai.NewMockProvider("NAME: Mathematics\nTOPICS:\n- Algebra")
+	s := generator.NewScaffolder(mock)
+
+	result, err := s.ScaffoldSubject(context.Background(), generator.ScaffoldRequest{
+		SyllabusID:      "test-syllabus",
+		SubjectID:       "test-syllabus-math",
+		SubjectGradeID:  "test-syllabus-math-grade-1",
+		Country:         "test",
+		SourceText:      "Math syllabus",
+		OutputDir:       outputDir,
+		GlobalSchemaDir: globalSchemaDir,
+	})
+	if err != nil {
+		t.Fatalf("ScaffoldSubject() error = %v", err)
+	}
+
+	if _, ok := result.Files[existingRelPath]; ok {
+		t.Errorf("existing schema %s should be skipped, but was in result", existingRelPath)
+	}
+
+	for _, name := range schemaNames {
+		if name == "assessments" {
+			continue
+		}
+		relPath := filepath.Join("curricula", "test", "test-syllabus", "test-syllabus-math", "schema", name+".schema.json")
+		if _, ok := result.Files[relPath]; !ok {
+			t.Errorf("missing schema file in result: %s", relPath)
+		}
+	}
+
+	if err := s.WriteFiles(result, outputDir); err != nil {
+		t.Fatalf("WriteFiles() error = %v", err)
+	}
+	got, err := os.ReadFile(existingFullPath)
+	if err != nil {
+		t.Fatalf("read existing: %v", err)
+	}
+	if string(got) != customContent {
+		t.Errorf("existing schema was overwritten: got %s, want %s", got, customContent)
+	}
+}
+
 func TestScaffoldSubject_NoSchemaDir(t *testing.T) {
 	mock := ai.NewMockProvider("NAME: Mathematics\nTOPICS:\n- Algebra")
 	s := generator.NewScaffolder(mock)
